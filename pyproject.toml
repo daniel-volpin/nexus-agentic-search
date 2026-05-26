@@ -10,7 +10,7 @@ dependencies = [
   "pydantic>=2.8,<3",
 ]
 
-[project.optional-dependencies]
+[dependency-groups]
 dev = [
   "pytest>=8.0",
 ]
@@ -19,3 +19,6 @@ dev = [
 testpaths = ["tests"]
 
 pythonpath = ["."]
+
+[tool.uv]
+default-groups = ["dev"]
