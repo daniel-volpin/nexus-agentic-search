@@ -7,7 +7,7 @@ Re-score and re-order search results against the user query using a local cross-
 
 **Does**
 - Take `(query, list[Result])` and return `list[RankedResult]` sorted by relevance score, top-K.
-- Score `(query, candidate_text)` pairs with `bge-reranker-base` (or pin-equivalent).
+- Score `(query, candidate_text)` pairs with `bge-reranker-v2-m3` (or pin-equivalent).
 - Apply dedup beyond URL canonicalization (title-similarity + snippet-similarity).
 - Apply domain diversity: cap pages-per-domain at `N` in the returned set.
 - Run entirely local; no network calls.
