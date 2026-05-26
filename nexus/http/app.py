@@ -66,29 +66,39 @@ def create_app(*, orchestrator, llm_config_roles: dict[str, object], config: HTT
 
     @app.post("/v1/search")
     async def search(request: Request):
-        _authorize(request)
-        payload = json.loads(request.state.cached_body.decode("utf-8") or "{}")
-        events = await _run_orchestrator(payload)
-        terminal = events[-1]
-        if terminal.stage == "answer":
-            return JSONResponse(status_code=200, content=terminal.payload)
-        if terminal.payload["reason"] == "timeout":
-            return JSONResponse(status_code=504, content={"error": "timeout", "retriable": True})
-        if terminal.payload["reason"] in {"search_unavailable", "llm_unavailable"}:
-            return JSONResponse(status_code=503, content={"error": terminal.payload["reason"], "retriable": terminal.payload["retriable"]})
-        if terminal.payload["reason"] == "budget_exhausted":
-            return JSONResponse(status_code=503, content={"error": "budget_exhausted", "retriable": False})
-        return JSONResponse(status_code=500, content={"error": "internal"})
+        token = _authorize(request)
+        if not app.state.rate_limiter.acquire_concurrency(token=token, limit=config.max_concurrent_per_token):
+            raise HTTPException(status_code=429, detail={"error": "rate_limited", "retry_after_s": 60})
+        try:
+            payload = json.loads(request.state.cached_body.decode("utf-8") or "{}")
+            events = await _run_orchestrator(payload)
+            terminal = events[-1]
+            if terminal.stage == "answer":
+                return JSONResponse(status_code=200, content=terminal.payload)
+            if terminal.payload["reason"] == "timeout":
+                return JSONResponse(status_code=504, content={"error": "timeout", "retriable": True})
+            if terminal.payload["reason"] in {"search_unavailable", "llm_unavailable"}:
+                return JSONResponse(status_code=503, content={"error": terminal.payload["reason"], "retriable": terminal.payload["retriable"]})
+            if terminal.payload["reason"] == "budget_exhausted":
+                return JSONResponse(status_code=503, content={"error": "budget_exhausted", "retriable": False})
+            return JSONResponse(status_code=500, content={"error": "internal"})
+        finally:
+            app.state.rate_limiter.release_concurrency(token=token)
 
     @app.post("/v1/search/stream")
     async def search_stream(request: Request):
-        _authorize(request)
+        token = _authorize(request)
+        if not app.state.rate_limiter.acquire_concurrency(token=token, limit=config.max_concurrent_per_token):
+            raise HTTPException(status_code=429, detail={"error": "rate_limited", "retry_after_s": 60})
         payload = json.loads(request.state.cached_body.decode("utf-8") or "{}")
 
         async def generate():
-            events = await _run_orchestrator(payload)
-            for idx, event in enumerate(events, start=1):
-                yield f"event: {event.stage}\nid: {idx}\ndata: {json.dumps(event.payload, default=str)}\n\n"
+            try:
+                events = await _run_orchestrator(payload)
+                for idx, event in enumerate(events, start=1):
+                    yield f"event: {event.stage}\nid: {idx}\ndata: {json.dumps(event.payload, default=str)}\n\n"
+            finally:
+                app.state.rate_limiter.release_concurrency(token=token)
 
         return StreamingResponse(generate(), media_type="text/event-stream")
 
