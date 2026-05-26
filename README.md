@@ -28,3 +28,12 @@ uv run pytest -q
   ```bash
   uv add --dev <package>
   ```
+
+
+## Reranker model decision (Spec 02)
+
+We are standardizing on **cross-encoder reranking** for top-K candidates.
+
+Current default target model: `BAAI/bge-reranker-v2-m3` (open weights, multilingual, strong quality/latency tradeoff for local CPU-first deployments).
+
+A short decision record with comparison criteria is in `docs/decisions/02-reranker-model-choice.md`.
