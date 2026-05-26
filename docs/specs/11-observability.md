@@ -64,6 +64,9 @@ Required metrics (consolidated from component specs):
 | `orchestrator_ungrounded_total` | counter | — |
 | `search_latency_ms` | histogram | `provider` |
 | `search_errors_total` | counter | `provider`, `reason` |
+| `search_provider_used_total` | counter | `provider` (`brave`/`searxng`) |
+| `searxng_engine_tripped_total` | counter | `engine` (`google`/`duckduckgo`) |
+| `searxng_engine_disabled` | gauge | `engine` (1 = currently tripped, 0 = available) |
 | `rerank_latency_ms` | histogram | — |
 | `crawl_latency_ms` | histogram | `render_js` |
 | `crawl_status_total` | counter | `status` |
@@ -108,6 +111,7 @@ Required metrics (consolidated from component specs):
 | `DailyCostCapHit` | `llm_cost_usd_total` daily sum >= budget | critical |
 | `UngroundedAnswerSpike` | `orchestrator_ungrounded_total` rate > 10% of total | investigate quality |
 | `CrawlFailureSpike` | crawl errors > 30% of requests over 10m | investigate |
+| `SearXNGEngineFlapping` | `searxng_engine_tripped_total` for a given engine ≥ 3 over 24h | investigate ban risk; consider removing engine |
 
 Alert routing (email, push, etc.) is configured at deploy time, not in code.
 

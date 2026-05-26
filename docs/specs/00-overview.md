@@ -37,11 +37,11 @@ Agentic web-search backend producing citation-grounded answers from live web sou
                    │   │   │   │
         ┌──────────┘   │   │   └───────────┐
         ▼              ▼   ▼               ▼
-   ┌────────┐    ┌────────┐ ┌────────┐ ┌────────────┐
-   │ Search │    │ Rerank │ │ Crawl  │ │    LLM     │
-   │ (Brave)│    │  (bge) │ │(Crawl4 │ │  Gateway   │
-   └────────┘    └────────┘ │  AI)   │ │ (LiteLLM)  │
-                            └────────┘ └────────────┘
+   ┌──────────────┐ ┌────────┐ ┌────────┐ ┌────────────┐
+   │   Search     │ │ Rerank │ │ Crawl  │ │    LLM     │
+   │ Brave (1st)  │ │  (bge) │ │(Crawl4 │ │  Gateway   │
+   │ SearXNG (fb) │ │        │ │  AI)   │ │ (LiteLLM)  │
+   └──────────────┘ └────────┘ └────────┘ └────────────┘
                                  │           │
                                  ▼           ▼
                             ┌─────────────────────┐

@@ -31,7 +31,7 @@ class Result:
     url: str                            # canonicalized
     title: str
     snippet: str                        # provider-supplied; NEVER a citation source
-    engine: Literal["brave"]            # extensible
+    engine: Literal["brave","searxng:google","searxng:duckduckgo"]
     rank: int                           # 0-based, provider order
     published_at: datetime | None       # if provider returned it
     fetched_at: datetime                # when this search call ran
@@ -94,11 +94,68 @@ Metrics
 
 Log lines structured JSON only.
 
+## SearXNG fallback provider (engine-locked: Google + DuckDuckGo only)
+
+A self-hosted SearXNG sidecar container (Spec 12) provides a second-tier provider invoked when Brave is unavailable or returns thin coverage. Engines other than `google` and `duckduckgo` are DISABLED in `searxng/settings.yml` and MUST stay disabled.
+
+### Activation policy
+
+The `SearchClient.search()` default returns Brave results. SearXNG is consulted exactly when:
+
+1. Brave returns `SearchUnavailable` after its own retry chain, OR
+2. Brave returns `len(results) < 3` for a non-empty query (thin coverage), OR
+3. Caller passes `provider="searxng"` explicitly (debug / power-user path; orchestrator does NOT expose this on either transport).
+
+SearXNG output flows through the same `Result` normalization, canonicalization, and dedup. The `engine` field records `"searxng:google"` or `"searxng:duckduckgo"` per row so downstream observability can distinguish sources.
+
+### Abuse / ban-risk controls (mandatory)
+
+Scraping Google from a residential IP can trigger an IP-level CAPTCHA on the entire home network for hours-to-days. The following controls bound but do not eliminate that risk.
+
+- Per-engine sustained QPS cap (token bucket, applied client-side BEFORE the SearXNG call):
+  - `google`: 0.2 QPS sustained, burst 1.
+  - `duckduckgo`: 0.5 QPS sustained, burst 2.
+- Global SearXNG QPS cap: ≤ 0.5.
+- CAPTCHA / abuse-page detection: a SearXNG response containing any of `sorry/index`, `recaptcha`, `g-recaptcha`, `unusual traffic`, or HTTP 429 from a named engine trips the per-engine circuit breaker.
+- Circuit breaker cool-down: `min(2^n × 30 min, 64 h)` where `n` = consecutive trips on the current UTC day for that engine. Auto-reset at UTC midnight.
+- A tripped engine is removed from the engine list passed to SearXNG for subsequent calls; if both engines are tripped, `SearchClient` falls back to Brave-only.
+- All trips emit a structured WARN log and increment `searxng_engine_tripped_total{engine}` (Spec 11). Three consecutive trips in 24h for the same engine raise the `SearXNGEngineFlapping` alert.
+
+### Configuration
+
+```toml
+[searxng]
+base_url        = "http://searxng:8080"        # adjacent container
+timeout_s       = 6.0
+engines         = ["google", "duckduckgo"]
+qps_per_engine  = { google = 0.2, duckduckgo = 0.5 }
+captcha_circuit_breaker = true
+```
+
+Values are config, not request-time arguments.
+
+### Additive invariants
+
+- Outbound from the SearXNG container is restricted at the egress firewall (Spec 12) to `www.google.com` and `html.duckduckgo.com` (plus DNS).
+- SearXNG never receives the user's bearer token. It sees only the search query.
+- The SearXNG container runs read-only with dropped capabilities, no admin endpoint exposed, no public bind.
+- SearXNG snippets, like Brave's, are NOT citation sources. Citation grounding always uses crawled documents.
+
+### Additive failure modes
+
+| Failure | Behavior |
+|---|---|
+| One engine tripped | Continue with the other; mark `Result.engine` accordingly. |
+| Both engines tripped | `SearchClient` returns Brave-only results; if Brave also unavailable, raise `SearchUnavailable`. |
+| SearXNG container unreachable | Same as both engines tripped; alert fires (Spec 11). |
+| SearXNG returns malformed JSON | Log structured warning, drop the offending rows, return what parsed. |
+| Engine returns zero results | Try the other engine in the same call; combine and dedup. |
+
 ## Out of scope / deferred
 
-- SearXNG fallback (deferred; if added, API-engines-only, never HTML scrapers).
-- Tavily integration (deferred; second provider via the same `SearchClient` interface).
+- Tavily integration (deferred; second contractual provider via the same `SearchClient` interface).
 - Semantic / embedding-based search.
+- SearXNG engines beyond `google` and `duckduckgo` (deliberately excluded).
 
 ## Open questions
 
