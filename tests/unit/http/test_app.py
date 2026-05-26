@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import threading
+import time
 
 from fastapi.testclient import TestClient
 
@@ -23,6 +25,18 @@ class FakeOrchestrator:
 
     async def search(self, req):
         self.calls.append(req)
+        for event in self.events:
+            yield event
+
+
+class SlowOrchestrator(FakeOrchestrator):
+    def __init__(self, events: list[AnswerEvent], *, delay_s: float) -> None:
+        super().__init__(events)
+        self.delay_s = delay_s
+
+    async def search(self, req):
+        self.calls.append(req)
+        time.sleep(self.delay_s)
         for event in self.events:
             yield event
 
@@ -145,3 +159,67 @@ def test_http_rate_limit_returns_429() -> None:
 
     assert response.status_code == 429
     assert response.json()["error"] == "rate_limited"
+
+
+def test_http_search_maps_timeout_to_504() -> None:
+    client, _ = make_client(
+        [AnswerEvent(stage="error", payload={"reason": "timeout", "retriable": True, "detail": "wall clock exceeded"})]
+    )
+
+    response = client.post("/v1/search", headers={"Authorization": "Bearer secret"}, json={"query": "python"})
+
+    assert response.status_code == 504
+    assert response.json() == {"error": "timeout", "retriable": True}
+
+
+def test_http_search_maps_internal_failure_to_500() -> None:
+    client, _ = make_client(
+        [AnswerEvent(stage="error", payload={"reason": "internal", "retriable": False, "detail": "boom"})]
+    )
+
+    response = client.post("/v1/search", headers={"Authorization": "Bearer secret"}, json={"query": "python"})
+
+    assert response.status_code == 500
+    assert response.json() == {"error": "internal"}
+
+
+def test_http_stream_sends_terminal_error_event() -> None:
+    client, _ = make_client(
+        [
+            AnswerEvent(stage="accepted", payload={"request_id": "1", "normalized_query": "python"}),
+            AnswerEvent(stage="error", payload={"reason": "llm_unavailable", "retriable": True, "detail": "down"}),
+        ]
+    )
+
+    with client.stream("POST", "/v1/search/stream", headers={"Authorization": "Bearer secret"}, json={"query": "python"}) as response:
+        body = b"".join(response.iter_bytes()).decode("utf-8")
+
+    assert response.status_code == 200
+    assert "event: accepted" in body
+    assert "event: error" in body
+    assert '"reason": "llm_unavailable"' in body
+
+
+def test_http_concurrency_limit_returns_429() -> None:
+    orchestrator = SlowOrchestrator([make_answer_event()], delay_s=0.2)
+    app = create_app(
+        orchestrator=orchestrator,
+        llm_config_roles={"synthesis": FakeRoleConfig("openai/gpt-4o-2024-11-20", [], 32000, 2000)},
+        config=HTTPConfig(token="secret", max_concurrent_per_token=1),
+    )
+    client = TestClient(app)
+    responses: list[int] = []
+
+    def do_request() -> None:
+        response = client.post("/v1/search", headers={"Authorization": "Bearer secret"}, json={"query": "python"})
+        responses.append(response.status_code)
+
+    first = threading.Thread(target=do_request)
+    second = threading.Thread(target=do_request)
+    first.start()
+    time.sleep(0.05)
+    second.start()
+    first.join()
+    second.join()
+
+    assert sorted(responses) == [200, 429]
