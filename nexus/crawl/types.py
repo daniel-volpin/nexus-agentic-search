@@ -41,6 +41,7 @@ class Document(BaseModel):
     requested_url: str
     content_hash: str
     markdown: str
+    enveloped_markdown: str = ""
     content_type: str
     fetched_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     status: CrawlStatus
