@@ -7,6 +7,7 @@ from html.parser import HTMLParser
 from urllib import error, request
 from urllib.parse import urlparse
 
+from .envelope import wrap_untrusted
 from .ssrf import SSRFGuard
 from .types import CrawlRequest, Document
 
@@ -70,6 +71,7 @@ class CrawlClient:
                     requested_url=requested,
                     content_hash=content_hash,
                     markdown=markdown,
+                    enveloped_markdown=wrap_untrusted(final_url, content_hash, markdown),
                     content_type=content_type_header,
                     fetched_at=now,
                     status="ok",
@@ -98,6 +100,7 @@ class CrawlClient:
             requested_url=requested_url,
             content_hash=hashlib.sha256(b"").hexdigest(),
             markdown="",
+            enveloped_markdown="",
             content_type="",
             fetched_at=fetched_at,
             status=status,  # type: ignore[arg-type]
