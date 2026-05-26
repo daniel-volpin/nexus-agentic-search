@@ -42,6 +42,12 @@ class Result(BaseModel):
     fetched_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
+class RankedResult(BaseModel):
+    result: Result
+    score: float = Field(ge=0.0, le=1.0)
+    rerank_rank: int = Field(ge=0)
+
+
 class SearchResponse(BaseModel):
     results: list[Result] = Field(default_factory=list)
     provider: str
