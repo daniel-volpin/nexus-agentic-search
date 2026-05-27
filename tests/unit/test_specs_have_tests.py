@@ -38,9 +38,7 @@ SPECS_WITHOUT_DIRECT_TEST_FILE = {
 # Specs whose implementation has not landed yet. Each entry is a tracked
 # gap, not a permanent exemption — remove the slug from this set when its
 # implementation PR merges.
-SPECS_NOT_YET_IMPLEMENTED = {
-    "09-cache",  # planned next per docs/plans/00-overview-plan.md
-}
+SPECS_NOT_YET_IMPLEMENTED: set[str] = set()
 
 # Slug → list of acceptable test-file slug fragments. The spec's name doesn't
 # always equal the implementation slug (e.g., 05-llm spec → llm/redaction.py
