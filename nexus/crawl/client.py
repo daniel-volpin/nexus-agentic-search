@@ -2,10 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from html.parser import HTMLParser
 from urllib import error, request
-from urllib.parse import urlparse
 
 from .envelope import wrap_untrusted
 from .ssrf import SSRFGuard
@@ -29,37 +28,55 @@ class _MarkdownExtractor(HTMLParser):
 
 
 class CrawlClient:
-    def __init__(self, ssrf_guard: SSRFGuard | None = None, user_agent: str = "NexusAgenticSearch/0.1") -> None:
+    def __init__(
+        self, ssrf_guard: SSRFGuard | None = None, user_agent: str = "NexusAgenticSearch/0.1"
+    ) -> None:
         self._ssrf = ssrf_guard or SSRFGuard()
         self._user_agent = user_agent
 
     def fetch(self, req: CrawlRequest) -> Document:
         requested = req.url
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         try:
             self._ssrf.validate_url(req.url)
         except ValueError:
             return self._empty_document(requested, now, "blocked_by_ssrf_guard", "", None, 0, [])
 
         render_start = time.perf_counter()
-        req_obj = request.Request(req.url, headers={"User-Agent": self._user_agent})
+        # SSRF guard already validated scheme + resolved host above; urlopen
+        # is invoked with the same vetted URL.
+        req_obj = request.Request(req.url, headers={"User-Agent": self._user_agent})  # noqa: S310
         try:
-            with request.urlopen(req_obj, timeout=req.timeout_s) as resp:
+            with request.urlopen(req_obj, timeout=req.timeout_s) as resp:  # noqa: S310
                 final_url = resp.geturl()
                 try:
                     self._ssrf.validate_url(final_url)
                 except ValueError:
-                    return self._empty_document(requested, now, "blocked_by_ssrf_guard", "", None, 0, [req.url])
+                    return self._empty_document(
+                        requested, now, "blocked_by_ssrf_guard", "", None, 0, [req.url]
+                    )
 
                 status = getattr(resp, "status", 200)
-                content_type_header = resp.headers.get("Content-Type", "").split(";")[0].strip().lower()
+                content_type_header = (
+                    resp.headers.get("Content-Type", "").split(";")[0].strip().lower()
+                )
                 if content_type_header not in _ALLOWED_CONTENT_TYPES:
-                    return self._empty_document(requested, now, "unsupported_content_type", final_url, status, 0, [final_url])
+                    return self._empty_document(
+                        requested,
+                        now,
+                        "unsupported_content_type",
+                        final_url,
+                        status,
+                        0,
+                        [final_url],
+                    )
 
                 body = resp.read(req.max_bytes + 1)
                 bytes_in = len(body)
                 if bytes_in > req.max_bytes:
-                    return self._empty_document(requested, now, "too_large", final_url, status, bytes_in, [final_url])
+                    return self._empty_document(
+                        requested, now, "too_large", final_url, status, bytes_in, [final_url]
+                    )
 
                 render_ms = int((time.perf_counter() - render_start) * 1000)
                 extract_start = time.perf_counter()
@@ -87,14 +104,25 @@ class CrawlClient:
         except TimeoutError:
             return self._empty_document(requested, now, "timeout", req.url, None, 0, [req.url])
         except Exception:
-            return self._empty_document(requested, now, "extraction_failed", req.url, None, 0, [req.url])
+            return self._empty_document(
+                requested, now, "extraction_failed", req.url, None, 0, [req.url]
+            )
 
     def _extract_markdown(self, html: str) -> str:
         parser = _MarkdownExtractor()
         parser.feed(html)
         return parser.markdown()
 
-    def _empty_document(self, requested_url: str, fetched_at: datetime, status: str, final_url: str, http_status: int | None, bytes_in: int, redirect_chain: list[str]) -> Document:
+    def _empty_document(
+        self,
+        requested_url: str,
+        fetched_at: datetime,
+        status: str,
+        final_url: str,
+        http_status: int | None,
+        bytes_in: int,
+        redirect_chain: list[str],
+    ) -> Document:
         return Document(
             url=final_url or requested_url,
             requested_url=requested_url,

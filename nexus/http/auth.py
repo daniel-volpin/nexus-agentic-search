@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import Header, HTTPException
+from fastapi import HTTPException
 
 
 def require_bearer_token(expected_token: str, authorization: str | None) -> str:

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
-from nexus.crawl.types import Document
 from nexus.citations import RawCitation, validate_citations
+from nexus.crawl.types import Document
 
 
 def make_document(
@@ -19,7 +19,7 @@ def make_document(
         markdown=markdown,
         enveloped_markdown=enveloped_markdown or markdown,
         content_type="text/markdown",
-        fetched_at=datetime.now(timezone.utc),
+        fetched_at=datetime.now(UTC),
         status="ok",
         http_status=200,
         bytes_in=len(markdown.encode("utf-8")),

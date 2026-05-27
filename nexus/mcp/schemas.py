@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from nexus.search.types import SearchRequest, ValidationError
+from nexus.search.types import SearchRequest
 
 from .types import MCPConfig
 

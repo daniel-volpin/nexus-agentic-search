@@ -8,7 +8,6 @@ from .dedup import drop_near_duplicates
 from .diversity import apply_per_domain_cap
 
 
-
 def rerank(
     query: str,
     candidates: list[Result],

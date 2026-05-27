@@ -1,17 +1,21 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator, Callable
-from datetime import datetime, timezone
 import hashlib
 import json
 import uuid
+from collections.abc import AsyncIterator, Callable
 
 from nexus.citations import RawCitation, validate_citations
 from nexus.crawl.types import CrawlRequest, Document
 from nexus.llm import BudgetExceeded, CompletionResult, InputTooLarge, LLMUnavailable
-from nexus.rerank import rerank as default_rerank
-from nexus.search.types import RankedResult, Result, SearchRequest, SearchResponse, SearchUnavailable
+from nexus.search.types import (
+    RankedResult,
+    Result,
+    SearchRequest,
+    SearchResponse,
+    SearchUnavailable,
+)
 
 from .prompts import build_synthesis_messages
 from .types import AnswerEvent, OrchestratorConfig
@@ -84,7 +88,7 @@ class Orchestrator:
 
         try:
             crawled_docs = await asyncio.wait_for(self._crawl_ranked(ranked_rows), timeout=remaining_before_crawl)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             event = AnswerEvent(stage="error", payload={"reason": "timeout", "retriable": True, "detail": "wall clock exceeded"})
             self._record(request_id, req, "error", started_at, degraded, ungrounded, cost_usd, 0, pages_failed, citations_valid, citations_rejected)
             yield event
@@ -137,7 +141,7 @@ class Orchestrator:
                 ),
                 timeout=remaining_before_llm,
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             event = AnswerEvent(stage="error", payload={"reason": "timeout", "retriable": True, "detail": "wall clock exceeded"})
             self._record(request_id, req, "error", started_at, degraded, ungrounded, cost_usd, len(ok_docs), pages_failed, citations_valid, citations_rejected)
             yield event

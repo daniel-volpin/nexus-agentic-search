@@ -20,9 +20,9 @@ def read_roles(*, roles: dict[str, object]) -> dict:
     out: dict[str, dict] = {}
     for name, role in roles.items():
         out[name] = {
-            "primary": getattr(role, "primary"),
-            "fallback": list(getattr(role, "fallback")),
-            "max_input_tokens": getattr(role, "max_input_tokens"),
-            "max_output_tokens": getattr(role, "max_output_tokens"),
+            "primary": role.primary,
+            "fallback": list(role.fallback),
+            "max_input_tokens": role.max_input_tokens,
+            "max_output_tokens": role.max_output_tokens,
         }
     return out

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from pathlib import Path
 import sqlite3
+from datetime import UTC, datetime
+from pathlib import Path
 
 
 class DailyBudgetStore:
@@ -52,5 +52,5 @@ class DailyBudgetStore:
 
 
 def _utc_date(now: datetime | None) -> str:
-    moment = now or datetime.now(timezone.utc)
-    return moment.astimezone(timezone.utc).date().isoformat()
+    moment = now or datetime.now(UTC)
+    return moment.astimezone(UTC).date().isoformat()

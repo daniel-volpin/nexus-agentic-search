@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
 import json
+from datetime import UTC, datetime
 
 import pytest
 
 from nexus.crawl.types import Document
-from nexus.citations import RawCitation
 from nexus.llm import BudgetExceeded, CompletionResult, InMemoryTelemetrySink, LLMUnavailable
 from nexus.orchestrator import Orchestrator, OrchestratorConfig
 from nexus.search.types import Result, SearchRequest, SearchResponse, SearchUnavailable
@@ -86,7 +85,7 @@ def make_document(url: str, *, markdown: str, content_hash: str, status: str = "
         markdown=markdown if status == "ok" else "",
         enveloped_markdown=f'<untrusted_source url="{url}" sha256="{content_hash}">{markdown}</untrusted_source>' if status == "ok" else "",
         content_type="text/markdown" if status == "ok" else "",
-        fetched_at=datetime.now(timezone.utc),
+        fetched_at=datetime.now(UTC),
         status=status,
         http_status=200 if status == "ok" else None,
         bytes_in=len(markdown.encode("utf-8")) if status == "ok" else 0,

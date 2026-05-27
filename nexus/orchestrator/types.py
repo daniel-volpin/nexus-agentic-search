@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Literal
-
 
 AnswerStage = Literal[
     "accepted",
@@ -22,7 +21,7 @@ AnswerStage = Literal[
 class AnswerEvent:
     stage: AnswerStage
     payload: dict
-    ts: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    ts: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 @dataclass(frozen=True)
