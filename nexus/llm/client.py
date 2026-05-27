@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
 import json
 import logging
 import os
-from pathlib import Path
 import time
+from collections.abc import AsyncIterator
+from pathlib import Path
 
 from nexus.crawl import wrap_untrusted
 
@@ -14,7 +14,15 @@ from .config import LLMConfig
 from .exceptions import BudgetExceeded, InputTooLarge, LLMUnavailable
 from .redaction import _redact_secrets
 from .telemetry import LLMTelemetrySink
-from .types import CompletionResult, LiteLLMBackend, Message, ProviderResponse, StreamChunk, ToolCall, ToolSpec
+from .types import (
+    CompletionResult,
+    LiteLLMBackend,
+    Message,
+    ProviderResponse,
+    StreamChunk,
+    ToolCall,
+    ToolSpec,
+)
 
 _PROVIDER_ENV_VARS = {
     "openai": ("OPENAI_API_KEY",),

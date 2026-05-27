@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
@@ -43,7 +43,7 @@ class Document(BaseModel):
     markdown: str
     enveloped_markdown: str = ""
     content_type: str
-    fetched_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    fetched_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     status: CrawlStatus
     http_status: int | None
     bytes_in: int = Field(ge=0)

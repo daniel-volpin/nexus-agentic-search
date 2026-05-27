@@ -1,10 +1,17 @@
-from .types import RankedResult, SearchRequest, Result, SearchResponse, SearchUnavailable, ValidationError
 from .canonical import canonicalize
+from .types import (
+    RankedResult,
+    Result,
+    SearchRequest,
+    SearchResponse,
+    SearchUnavailable,
+    ValidationError,
+)
 
 __all__ = [
     "RankedResult",
-    "SearchRequest",
     "Result",
+    "SearchRequest",
     "SearchResponse",
     "SearchUnavailable",
     "ValidationError",

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
@@ -39,7 +39,7 @@ class Result(BaseModel):
     engine: Literal["brave", "searxng:google", "searxng:duckduckgo"]
     rank: int = Field(ge=0)
     published_at: datetime | None = None
-    fetched_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    fetched_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class RankedResult(BaseModel):
