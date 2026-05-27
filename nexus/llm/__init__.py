@@ -1,6 +1,6 @@
 from .client import LiteLLMClient
 from .config import LLMConfig, LLMRoleConfig
-from .exceptions import BudgetExceeded, InputTooLarge, LLMUnavailable
+from .exceptions import BudgetExceeded, InputTooLarge, LLMUnavailable, SynthesisToolsDisabled
 from .redaction import _redact_secrets
 from .telemetry import InMemoryTelemetrySink, LLMTelemetrySink
 from .types import (
@@ -27,6 +27,7 @@ __all__ = [
     "Message",
     "ProviderResponse",
     "StreamChunk",
+    "SynthesisToolsDisabled",
     "ToolCall",
     "ToolSpec",
     "_redact_secrets",

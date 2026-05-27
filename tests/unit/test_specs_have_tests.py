@@ -31,7 +31,6 @@ SPECS_WITHOUT_DIRECT_TEST_FILE = {
     "00-overview",  # system overview — no module to test
     "12-deployment",  # tested via integration / container probes
     "13-testing",  # this file IS its enforcement
-    "10-security",  # consolidated in tests/security/*
 }
 
 # Specs whose implementation has not landed yet. Each entry is a tracked
@@ -53,6 +52,7 @@ SPEC_TEST_KEYWORDS: dict[str, tuple[str, ...]] = {
     "07-mcp": ("mcp",),
     "08-http": ("http",),
     "09-cache": ("cache",),
+    "10-security": ("security_selftest", "redaction", "envelope", "ssrf"),
     "11-observability": ("telemetry", "logging"),
 }
 
