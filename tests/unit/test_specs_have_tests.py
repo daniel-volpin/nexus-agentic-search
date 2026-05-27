@@ -29,7 +29,6 @@ SPEC_FILE_PATTERN = re.compile(r"^(\d{2})-([a-z0-9-]+)\.md$")
 # and dedicated security tests rather than a single named module.
 SPECS_WITHOUT_DIRECT_TEST_FILE = {
     "00-overview",  # system overview — no module to test
-    "12-deployment",  # tested via integration / container probes
     "13-testing",  # this file IS its enforcement
 }
 
@@ -54,6 +53,7 @@ SPEC_TEST_KEYWORDS: dict[str, tuple[str, ...]] = {
     "09-cache": ("cache",),
     "10-security": ("security_selftest", "redaction", "envelope", "ssrf"),
     "11-observability": ("telemetry", "logging"),
+    "12-deployment": ("central_config", "main"),
 }
 
 

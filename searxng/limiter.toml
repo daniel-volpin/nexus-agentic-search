@@ -1,0 +1,11 @@
+# SearXNG's own rate-limiter config (Spec 12). Defense-in-depth with
+# the client-side per-engine QPS cap in nexus/search/searxng.py.
+
+[real_ip]
+x_for = 1
+ipv4_prefix = 32
+ipv6_prefix = 56
+
+[botdetection.ip_limit]
+filter_link_local = true
+link_token = false
