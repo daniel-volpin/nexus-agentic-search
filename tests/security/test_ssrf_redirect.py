@@ -1,123 +1,139 @@
-"""Adversarial tests for the crawler's redirect re-validation
+"""Adversarial tests for the crawler's per-hop redirect re-validation
 (Spec 03 §Failure modes + Spec 10 §SSRF guard).
 
-We mock ``urllib.request.urlopen`` so the test exercises the crawler's
-own logic — specifically the re-validation of the *final* URL after
-redirects — without needing a reachable server (a live loopback
-fixture would be blocked by the SSRF guard anyway, since 127.0.0.1 is
-loopback).
-
-The initial URL uses a public IP literal allowlisted via
-``public_ip_allow`` so the first guard call passes; the mocked
-response's ``geturl()`` then reports a redirect into a blocked range,
-which the crawler must catch.
+The async ``CrawlClient`` follows redirects MANUALLY with httpx
+auto-redirect disabled, re-running the SSRF guard on every hop. We
+mock ``socket.getaddrinfo`` so hostnames resolve to chosen IPs and use
+an httpx ``MockTransport`` to emit responses.
 """
 
 from __future__ import annotations
 
-from types import TracebackType
+import socket
 from unittest.mock import patch
 
+import httpx
 import pytest
 
-from nexus.crawl import CrawlClient, CrawlRequest
-from nexus.crawl.ssrf import SSRFGuard
+from nexus.crawl import CrawlClient, CrawlRequest, PerDomainRateLimiter, RobotsCache, SSRFGuard
 
 pytestmark = pytest.mark.security
 
-_PUBLIC_LITERAL = "93.184.216.34"
-_START_URL = f"http://{_PUBLIC_LITERAL}/start"
+_PUBLIC = "93.184.216.34"
 
 
-class _FakeHeaders:
-    def __init__(self, content_type: str = "text/html") -> None:
-        self._content_type = content_type
+def _resolver(mapping: dict[str, str]):
+    """getaddrinfo replacement resolving hostnames per ``mapping``;
+    IP-literal hosts resolve to themselves."""
 
-    def get(self, name: str, default: str = "") -> str:
-        if name.lower() == "content-type":
-            return self._content_type
-        return default
+    def fake(host, port, *args, **kwargs):
+        ip = mapping.get(host, host)
+        family = socket.AF_INET6 if ":" in ip else socket.AF_INET
+        return [(family, None, None, "", (ip, port or 0))]
 
-
-class _FakeResponse:
-    """Mimics the slice of http.client.HTTPResponse that CrawlClient
-    uses: context manager, geturl(), status, headers, read()."""
-
-    def __init__(self, *, final_url: str, body: bytes = b"<p>x</p>") -> None:
-        self._final_url = final_url
-        self._body = body
-        self.status = 200
-        self.headers = _FakeHeaders()
-
-    def __enter__(self) -> _FakeResponse:
-        return self
-
-    def __exit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc: BaseException | None,
-        tb: TracebackType | None,
-    ) -> None:
-        return None
-
-    def geturl(self) -> str:
-        return self._final_url
-
-    def read(self, _n: int = -1) -> bytes:
-        return self._body
+    return fake
 
 
-def _client_allowing_start() -> CrawlClient:
-    # Allow the public literal so the FIRST guard call passes; the
-    # redirect target is what we want the crawler to reject.
-    return CrawlClient(ssrf_guard=SSRFGuard(public_ip_allow={_PUBLIC_LITERAL}))
+def _crawler(handler, *, mapping: dict[str, str]) -> tuple[CrawlClient, dict]:
+    """Build a CrawlClient whose HTTP is mocked and whose robots +
+    rate limiter are permissive, so tests isolate redirect/SSRF logic."""
+    transport = httpx.MockTransport(handler)
+    client = httpx.AsyncClient(transport=transport, follow_redirects=False)
 
+    class _AllowRobots(RobotsCache):
+        async def allowed(self, url, fetcher):  # type: ignore[override]
+            return True
 
-@pytest.mark.parametrize(
-    "redirect_target",
-    [
-        "http://169.254.169.254/latest/meta-data/",  # cloud metadata
-        "http://10.0.0.1/internal",  # RFC1918
-        "http://127.0.0.1/admin",  # loopback
-        "http://192.168.1.1/router",  # RFC1918
-        "http://[::1]/",  # loopback v6
-    ],
-)
-def test_redirect_final_url_into_blocked_range_is_rejected(
-    redirect_target: str,
-) -> None:
-    """Spec 03: when ``urlopen`` follows a redirect whose final URL is
-    in a blocked range, the crawler MUST classify the document as
-    ``blocked_by_ssrf_guard`` and surface no body."""
-    client = _client_allowing_start()
-    fake = _FakeResponse(final_url=redirect_target, body=b"<p>secret</p>")
-    with patch("nexus.crawl.client.request.urlopen", return_value=fake):
-        doc = client.fetch(CrawlRequest(url=_START_URL))
-    assert doc.status == "blocked_by_ssrf_guard"
-    assert doc.markdown == "", "blocked documents must not surface body content"
-
-
-def test_redirect_to_public_final_url_is_allowed() -> None:
-    """Negative control: a redirect whose final URL is still public is
-    fetched normally — proves the rejection above is specific to
-    blocked ranges, not all redirects."""
-    client = _client_allowing_start()
-    fake = _FakeResponse(
-        final_url=f"http://{_PUBLIC_LITERAL}/final",
-        body=b"<html><body><p>hello</p></body></html>",
+    crawler = CrawlClient(
+        ssrf_guard=SSRFGuard(),
+        rate_limiter=PerDomainRateLimiter(rate_per_s=1000, burst=1000),
+        robots=_AllowRobots(user_agent="test"),
+        client=client,
     )
-    with patch("nexus.crawl.client.request.urlopen", return_value=fake):
-        doc = client.fetch(CrawlRequest(url=_START_URL))
-    assert doc.status == "ok"
-    assert "hello" in doc.markdown
-    assert doc.url == f"http://{_PUBLIC_LITERAL}/final"
+    return crawler, {"resolver": _resolver(mapping)}
 
 
-def test_initial_url_in_blocked_range_never_calls_urlopen() -> None:
-    """The first guard call must reject a blocked initial URL BEFORE
-    any network attempt — urlopen is never invoked."""
-    client = CrawlClient()  # default guard, no allowlist
-    with patch("nexus.crawl.client.request.urlopen") as urlopen:
-        doc = client.fetch(CrawlRequest(url="http://169.254.169.254/"))
+async def test_redirect_to_rfc1918_is_blocked_on_next_hop() -> None:
+    """A 302 to http://10.0.0.1/ must trip the guard on the NEXT hop
+    before any request is issued to the private address."""
+    requested_paths: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requested_paths.append(str(request.url))
+        # The first (public) request returns a redirect to RFC1918.
+        return httpx.Response(302, headers={"Location": "http://10.0.0.1/secret"})
+
+    crawler, ctx = _crawler(handler, mapping={"public.test": _PUBLIC})
+    with patch("nexus.crawl.ssrf.socket.getaddrinfo", side_effect=ctx["resolver"]):
+        doc = await crawler.fetch(CrawlRequest(url="http://public.test/start"))
+
     assert doc.status == "blocked_by_ssrf_guard"
-    urlopen.assert_not_called()
+    assert doc.markdown == ""
+    # The redirect chain recorded the public start, then stopped — the
+    # private hop was never requested (guard fired before the request).
+    assert all("10.0.0.1" not in p for p in requested_paths)
+    assert "http://public.test/start" in doc.redirect_chain
+
+
+async def test_redirect_to_metadata_ip_blocked() -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(302, headers={"Location": "http://169.254.169.254/latest/meta-data/"})
+
+    crawler, ctx = _crawler(handler, mapping={"public.test": _PUBLIC})
+    with patch("nexus.crawl.ssrf.socket.getaddrinfo", side_effect=ctx["resolver"]):
+        doc = await crawler.fetch(CrawlRequest(url="http://public.test/x"))
+    assert doc.status == "blocked_by_ssrf_guard"
+
+
+async def test_redirect_to_public_is_followed_and_extracted() -> None:
+    """A redirect to another public host is followed and the final body
+    extracted — proves the rejection above is specific to blocked ranges."""
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return httpx.Response(302, headers={"Location": "http://elsewhere.test/final"})
+        return httpx.Response(
+            200,
+            headers={"Content-Type": "text/html"},
+            content=b"<html><body><p>final content</p></body></html>",
+        )
+
+    crawler, ctx = _crawler(
+        handler, mapping={"public.test": _PUBLIC, "elsewhere.test": "93.184.216.35"}
+    )
+    with patch("nexus.crawl.ssrf.socket.getaddrinfo", side_effect=ctx["resolver"]):
+        doc = await crawler.fetch(CrawlRequest(url="http://public.test/start"))
+
+    assert doc.status == "ok"
+    assert "final content" in doc.markdown
+    assert doc.url == "http://elsewhere.test/final"
+    assert doc.redirect_chain == ["http://public.test/start", "http://elsewhere.test/final"]
+
+
+async def test_initial_blocked_url_never_makes_request() -> None:
+    issued = {"n": 0}
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        issued["n"] += 1
+        return httpx.Response(200)
+
+    crawler, ctx = _crawler(handler, mapping={})
+    # No mapping → 169.254.169.254 is an IP literal, rejected outright.
+    with patch("nexus.crawl.ssrf.socket.getaddrinfo", side_effect=ctx["resolver"]):
+        doc = await crawler.fetch(CrawlRequest(url="http://169.254.169.254/"))
+    assert doc.status == "blocked_by_ssrf_guard"
+    assert issued["n"] == 0
+
+
+async def test_redirect_loop_exceeds_budget() -> None:
+    """Endless redirects are capped at the redirect budget."""
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(302, headers={"Location": "http://public.test/again"})
+
+    crawler, ctx = _crawler(handler, mapping={"public.test": _PUBLIC})
+    with patch("nexus.crawl.ssrf.socket.getaddrinfo", side_effect=ctx["resolver"]):
+        doc = await crawler.fetch(CrawlRequest(url="http://public.test/start"))
+    assert doc.status == "http_4xx"  # budget exceeded → classified, not hung
