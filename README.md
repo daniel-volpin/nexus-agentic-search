@@ -31,10 +31,18 @@ The default profile costs nothing:
 The full stack (service + SearXNG) comes up with:
 
 ```bash
-cp secrets/nexus.env.example secrets/nexus.env   # fill in GEMINI_API_KEY + tokens
+cp secrets/nexus.env.example   secrets/nexus.env
 cp secrets/searxng.env.example secrets/searxng.env
+./deploy/scripts/rotate-tokens.sh        # generate tokens + SearXNG secret
+# then edit secrets/nexus.env → set GEMINI_API_KEY
 docker compose up -d
-curl -s localhost:8186/v1/health
+```
+
+The container publishes no host port (Docker-bridge only, by design),
+so probe it from inside — or from an adjacent container on `agentic-net`:
+
+```bash
+docker compose exec nexus-search curl -fsS http://localhost:8186/v1/health
 ```
 
 ## Common commands

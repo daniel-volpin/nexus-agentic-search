@@ -29,6 +29,7 @@ import asyncio
 import logging
 import signal
 from collections.abc import Awaitable
+from typing import Any
 
 import uvicorn
 
@@ -161,16 +162,7 @@ def _start_http(
         llm_config_roles=dict(config.llm.roles),
         config=config.http,
     )
-    server = uvicorn.Server(
-        uvicorn.Config(
-            app=app,
-            host=config.bind_host,
-            port=config.http_port,
-            log_config=None,  # we own logging
-            access_log=False,
-            lifespan="off",
-        )
-    )
+    server = uvicorn.Server(_uvicorn_config(app, config.bind_host, config.http_port))
     task = asyncio.create_task(server.serve(), name="http_server")
     return server, task
 
@@ -195,17 +187,24 @@ def _start_mcp(config: Config, llm_client: LiteLLMClient) -> asyncio.Task[None]:
 
         return asyncio.create_task(_noop(), name="mcp_noop")
 
-    server = uvicorn.Server(
-        uvicorn.Config(
-            app=app,
-            host=config.bind_host,
-            port=config.mcp_port,
-            log_config=None,
-            access_log=False,
-            lifespan="off",
-        )
-    )
+    server = uvicorn.Server(_uvicorn_config(app, config.bind_host, config.mcp_port))
     return asyncio.create_task(server.serve(), name="mcp_server")
+
+
+def _uvicorn_config(app: Any, host: str, port: int) -> uvicorn.Config:
+    """Shared uvicorn config. ``server_header=False`` suppresses uvicorn's
+    own ``Server: uvicorn`` header so our middleware's ``Server: nexus`` is
+    the only one (no framework disclosure / duplicate header). We own
+    logging, so uvicorn's log config and access log are off."""
+    return uvicorn.Config(
+        app=app,
+        host=host,
+        port=port,
+        log_config=None,
+        access_log=False,
+        lifespan="off",
+        server_header=False,
+    )
 
 
 # ---------- shutdown plumbing ----------
