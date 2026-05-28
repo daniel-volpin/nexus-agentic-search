@@ -3,6 +3,7 @@
 
 .PHONY: help install lint format typecheck \
         test test-unit test-security test-integration test-load test-golden test-cov \
+        check-secrets \
         clean
 
 help:  ## Show this help.
@@ -45,6 +46,23 @@ test-golden:  ## Run golden-quality suite (requires GOLDEN_LIVE=1 + API keys).
 test-cov:  ## Run unit + security tests with coverage.
 	uv run pytest -q tests/unit tests/security \
 	  --cov=nexus --cov-report=term-missing --cov-report=xml
+
+check-secrets:  ## Verify secrets/nexus.env has all required keys (run before docker compose up).
+	@secrets_file=secrets/nexus.env; \
+	example_file=secrets/nexus.env.example; \
+	if [ ! -f "$$secrets_file" ]; then \
+	  echo "❌  $$secrets_file missing — copy $$example_file and fill in values"; exit 1; \
+	fi; \
+	required_keys="GEMINI_API_KEY GOOGLE_API_KEY NEXUS_HTTP_TOKEN NEXUS_MCP_TOKEN"; \
+	missing=""; \
+	for key in $$required_keys; do \
+	  val=$$(grep -E "^$${key}=." "$$secrets_file" 2>/dev/null || true); \
+	  if [ -z "$$val" ]; then missing="$$missing $$key"; fi; \
+	done; \
+	if [ -n "$$missing" ]; then \
+	  echo "❌  Missing or empty required keys in $$secrets_file:$$missing"; exit 1; \
+	fi; \
+	echo "✅  secrets/nexus.env looks complete"
 
 clean:  ## Remove caches and build artefacts.
 	rm -rf .pytest_cache .mypy_cache .ruff_cache .coverage coverage.xml htmlcov build dist
