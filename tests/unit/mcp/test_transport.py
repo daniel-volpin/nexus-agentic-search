@@ -1,16 +1,16 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
 import socket
 import threading
 import time
+from dataclasses import dataclass
 
+import pytest
+import uvicorn
 from fastmcp import Client
 from fastmcp.exceptions import ToolError
-import pytest
 from starlette.testclient import TestClient
-import uvicorn
 
 from nexus.citations import Citation
 from nexus.mcp import MCPConfig, MCPTransport, create_bearer_auth, create_streamable_http_app
@@ -63,7 +63,11 @@ def make_answer_event(*, degraded: bool = False) -> AnswerEvent:
 
 
 def test_server_definition_exposes_exactly_one_tool() -> None:
-    transport = MCPTransport(orchestrator=FakeOrchestrator([]), llm_config_roles={"synthesis": FakeRoleConfig("openai/gpt-4o-2024-11-20", [], 32000, 2000)}, config=MCPConfig(token="secret"))
+    transport = MCPTransport(
+        orchestrator=FakeOrchestrator([]),
+        llm_config_roles={"synthesis": FakeRoleConfig("openai/gpt-4o-2024-11-20", [], 32000, 2000)},
+        config=MCPConfig(token="secret"),
+    )
 
     tool_defs = transport.tool_definitions()
 
@@ -71,7 +75,11 @@ def test_server_definition_exposes_exactly_one_tool() -> None:
 
 
 def test_validate_token_rejects_invalid_bearer() -> None:
-    transport = MCPTransport(orchestrator=FakeOrchestrator([]), llm_config_roles={"synthesis": FakeRoleConfig("openai/gpt-4o-2024-11-20", [], 32000, 2000)}, config=MCPConfig(token="secret"))
+    transport = MCPTransport(
+        orchestrator=FakeOrchestrator([]),
+        llm_config_roles={"synthesis": FakeRoleConfig("openai/gpt-4o-2024-11-20", [], 32000, 2000)},
+        config=MCPConfig(token="secret"),
+    )
 
     assert transport.validate_token("Bearer wrong") is False
     assert transport.validate_token("Bearer secret") is True
@@ -79,7 +87,11 @@ def test_validate_token_rejects_invalid_bearer() -> None:
 
 def test_handle_call_rejects_invalid_input() -> None:
     orchestrator = FakeOrchestrator([])
-    transport = MCPTransport(orchestrator=orchestrator, llm_config_roles={"synthesis": FakeRoleConfig("openai/gpt-4o-2024-11-20", [], 32000, 2000)}, config=MCPConfig(token="secret"))
+    transport = MCPTransport(
+        orchestrator=orchestrator,
+        llm_config_roles={"synthesis": FakeRoleConfig("openai/gpt-4o-2024-11-20", [], 32000, 2000)},
+        config=MCPConfig(token="secret"),
+    )
 
     result = asyncio.run(transport.handle_call({"query": ""}))
 
@@ -90,12 +102,18 @@ def test_handle_call_rejects_invalid_input() -> None:
 def test_handle_call_maps_progress_and_final_answer() -> None:
     orchestrator = FakeOrchestrator(
         [
-            AnswerEvent(stage="accepted", payload={"request_id": "1", "normalized_query": "python"}),
+            AnswerEvent(
+                stage="accepted", payload={"request_id": "1", "normalized_query": "python"}
+            ),
             AnswerEvent(stage="searched", payload={"result_count": 1, "provider": "brave"}),
             make_answer_event(),
         ]
     )
-    transport = MCPTransport(orchestrator=orchestrator, llm_config_roles={"synthesis": FakeRoleConfig("openai/gpt-4o-2024-11-20", [], 32000, 2000)}, config=MCPConfig(token="secret"))
+    transport = MCPTransport(
+        orchestrator=orchestrator,
+        llm_config_roles={"synthesis": FakeRoleConfig("openai/gpt-4o-2024-11-20", [], 32000, 2000)},
+        config=MCPConfig(token="secret"),
+    )
 
     result = asyncio.run(transport.handle_call({"query": "python"}))
 
@@ -113,12 +131,18 @@ def test_handle_call_reports_progress_to_context() -> None:
 
     orchestrator = FakeOrchestrator(
         [
-            AnswerEvent(stage="accepted", payload={"request_id": "1", "normalized_query": "python"}),
+            AnswerEvent(
+                stage="accepted", payload={"request_id": "1", "normalized_query": "python"}
+            ),
             AnswerEvent(stage="searched", payload={"result_count": 1, "provider": "brave"}),
             make_answer_event(),
         ]
     )
-    transport = MCPTransport(orchestrator=orchestrator, llm_config_roles={"synthesis": FakeRoleConfig("openai/gpt-4o-2024-11-20", [], 32000, 2000)}, config=MCPConfig(token="secret"))
+    transport = MCPTransport(
+        orchestrator=orchestrator,
+        llm_config_roles={"synthesis": FakeRoleConfig("openai/gpt-4o-2024-11-20", [], 32000, 2000)},
+        config=MCPConfig(token="secret"),
+    )
     ctx = FakeContext()
 
     result = asyncio.run(transport.handle_call({"query": "python"}, ctx=ctx))
@@ -131,11 +155,20 @@ def test_handle_call_reports_progress_to_context() -> None:
 def test_handle_call_maps_orchestrator_error_without_detail_leak() -> None:
     orchestrator = FakeOrchestrator(
         [
-            AnswerEvent(stage="accepted", payload={"request_id": "1", "normalized_query": "python"}),
-            AnswerEvent(stage="error", payload={"reason": "llm_unavailable", "retriable": True, "detail": "provider down"}),
+            AnswerEvent(
+                stage="accepted", payload={"request_id": "1", "normalized_query": "python"}
+            ),
+            AnswerEvent(
+                stage="error",
+                payload={"reason": "llm_unavailable", "retriable": True, "detail": "provider down"},
+            ),
         ]
     )
-    transport = MCPTransport(orchestrator=orchestrator, llm_config_roles={"synthesis": FakeRoleConfig("openai/gpt-4o-2024-11-20", [], 32000, 2000)}, config=MCPConfig(token="secret"))
+    transport = MCPTransport(
+        orchestrator=orchestrator,
+        llm_config_roles={"synthesis": FakeRoleConfig("openai/gpt-4o-2024-11-20", [], 32000, 2000)},
+        config=MCPConfig(token="secret"),
+    )
 
     result = asyncio.run(transport.handle_call({"query": "python"}))
 
@@ -145,7 +178,9 @@ def test_handle_call_maps_orchestrator_error_without_detail_leak() -> None:
 def test_answer_is_truncated_and_marked_degraded_when_over_cap() -> None:
     answer = make_answer_event()
     answer.payload["answer_text"] = "x" * 17000
-    answer.payload["documents"] = [{"url": f"https://example.com/{idx}", "content_hash": f"doc-{idx}"} for idx in range(20)]
+    answer.payload["documents"] = [
+        {"url": f"https://example.com/{idx}", "content_hash": f"doc-{idx}"} for idx in range(20)
+    ]
     answer.payload["citations"] = [
         Citation(
             url=f"https://example.com/{idx}",
@@ -158,7 +193,11 @@ def test_answer_is_truncated_and_marked_degraded_when_over_cap() -> None:
         for idx in range(40)
     ]
     orchestrator = FakeOrchestrator([answer])
-    transport = MCPTransport(orchestrator=orchestrator, llm_config_roles={"synthesis": FakeRoleConfig("openai/gpt-4o-2024-11-20", [], 32000, 2000)}, config=MCPConfig(token="secret"))
+    transport = MCPTransport(
+        orchestrator=orchestrator,
+        llm_config_roles={"synthesis": FakeRoleConfig("openai/gpt-4o-2024-11-20", [], 32000, 2000)},
+        config=MCPConfig(token="secret"),
+    )
 
     result = asyncio.run(transport.handle_call({"query": "python"}))
 
@@ -172,7 +211,9 @@ def test_status_resource_and_roles_resource_are_exposed() -> None:
     transport = MCPTransport(
         orchestrator=FakeOrchestrator([]),
         llm_config_roles={
-            "synthesis": FakeRoleConfig("openai/gpt-4o-2024-11-20", ["anthropic/claude-sonnet-4-5-20250929"], 32000, 2000)
+            "synthesis": FakeRoleConfig(
+                "openai/gpt-4o-2024-11-20", ["anthropic/claude-sonnet-4-5-20250929"], 32000, 2000
+            )
         },
         config=MCPConfig(token="secret", version="1.2.3"),
     )
@@ -186,7 +227,7 @@ def test_status_resource_and_roles_resource_are_exposed() -> None:
 
 
 def test_missing_token_config_is_rejected() -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="token"):
         MCPConfig(token="")
 
 
@@ -216,7 +257,11 @@ def test_handle_call_rejects_malformed_answer_payload() -> None:
             )
         ]
     )
-    transport = MCPTransport(orchestrator=orchestrator, llm_config_roles={"synthesis": FakeRoleConfig("openai/gpt-4o-2024-11-20", [], 32000, 2000)}, config=MCPConfig(token="secret"))
+    transport = MCPTransport(
+        orchestrator=orchestrator,
+        llm_config_roles={"synthesis": FakeRoleConfig("openai/gpt-4o-2024-11-20", [], 32000, 2000)},
+        config=MCPConfig(token="secret"),
+    )
 
     result = asyncio.run(transport.handle_call({"query": "python"}))
 
@@ -225,7 +270,11 @@ def test_handle_call_rejects_malformed_answer_payload() -> None:
 
 def test_live_http_auth_blocks_unauthorized_and_allows_authorized_protocol_handling() -> None:
     orchestrator = FakeOrchestrator([make_answer_event()])
-    transport = MCPTransport(orchestrator=orchestrator, llm_config_roles={"synthesis": FakeRoleConfig("openai/gpt-4o-2024-11-20", [], 32000, 2000)}, config=MCPConfig(token="secret"))
+    transport = MCPTransport(
+        orchestrator=orchestrator,
+        llm_config_roles={"synthesis": FakeRoleConfig("openai/gpt-4o-2024-11-20", [], 32000, 2000)},
+        config=MCPConfig(token="secret"),
+    )
     app = create_streamable_http_app(transport=transport)
 
     with TestClient(app) as client:
@@ -240,7 +289,9 @@ def test_live_http_auth_blocks_unauthorized_and_allows_authorized_protocol_handl
 def test_end_to_end_mcp_tool_call_over_streamable_http() -> None:
     orchestrator = FakeOrchestrator(
         [
-            AnswerEvent(stage="accepted", payload={"request_id": "1", "normalized_query": "python"}),
+            AnswerEvent(
+                stage="accepted", payload={"request_id": "1", "normalized_query": "python"}
+            ),
             AnswerEvent(stage="searched", payload={"result_count": 1, "provider": "brave"}),
             make_answer_event(),
         ]
@@ -271,7 +322,9 @@ def test_end_to_end_mcp_tool_call_over_streamable_http() -> None:
         def handle_progress(progress_value, total=None, message=None, **kwargs) -> None:
             progress.append((progress_value, total, message))
 
-        async with Client(f"http://127.0.0.1:{port}/mcp", auth="secret", progress_handler=handle_progress) as client:
+        async with Client(
+            f"http://127.0.0.1:{port}/mcp", auth="secret", progress_handler=handle_progress
+        ) as client:
             tools = await client.list_tools()
             result = await client.call_tool("agentic_search", {"query": "python"})
             return [tool.name for tool in tools], result, progress

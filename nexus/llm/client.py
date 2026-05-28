@@ -1,20 +1,28 @@
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
 import json
 import logging
 import os
-from pathlib import Path
 import time
+from collections.abc import AsyncIterator
+from pathlib import Path
 
 from nexus.crawl import wrap_untrusted
 
 from .budget import DailyBudgetStore
 from .config import LLMConfig
-from .exceptions import BudgetExceeded, InputTooLarge, LLMUnavailable
+from .exceptions import BudgetExceeded, InputTooLarge, LLMUnavailable, SynthesisToolsDisabled
 from .redaction import _redact_secrets
 from .telemetry import LLMTelemetrySink
-from .types import CompletionResult, LiteLLMBackend, Message, ProviderResponse, StreamChunk, ToolCall, ToolSpec
+from .types import (
+    CompletionResult,
+    LiteLLMBackend,
+    Message,
+    ProviderResponse,
+    StreamChunk,
+    ToolCall,
+    ToolSpec,
+)
 
 _PROVIDER_ENV_VARS = {
     "openai": ("OPENAI_API_KEY",),
@@ -48,6 +56,15 @@ class LiteLLMClient:
         tools: list[ToolSpec] | None = None,
     ) -> CompletionResult:
         started_at = time.perf_counter()
+        if role == "synthesis" and tools:
+            # Spec 10 §Synthesis-role hardening: tool calling MUST be
+            # disabled at the API parameter. Defense in depth against
+            # prompt-injection forcing a tool call from inside crawled
+            # content. The orchestrator already passes tools=None for
+            # this role; this enforcement is the boundary backstop.
+            raise SynthesisToolsDisabled(
+                "tools=None is required for role='synthesis' (Spec 10)"
+            )
         role_config = self._config.roles[role]
         self._ensure_budget(role)
         input_tokens = self.count_tokens(role, messages)

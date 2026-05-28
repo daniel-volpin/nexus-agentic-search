@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from typing import Any
 
 from .resources import read_roles, read_status
 from .schemas import truncate_answer_payload, validate_input, validate_output
@@ -35,7 +34,7 @@ class MCPTransport:
     async def handle_call(self, payload: dict, *, ctx=None) -> dict:
         try:
             request = validate_input(payload, config=self._config)
-        except Exception as exc:
+        except Exception:
             return {"error": "invalid_input"}
 
         self._state.requests_today += 1

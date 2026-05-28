@@ -1,0 +1,57 @@
+# Spec 12 §SearXNG configuration. Engine allowlist is intentionally
+# small (google + duckduckgo only). Every other default engine is
+# explicitly disabled so an upstream version bump that adds new
+# engines does NOT auto-enable them.
+
+use_default_settings: true
+
+server:
+  secret_key: "${SEARXNG_SECRET_KEY}"
+  limiter: true
+  image_proxy: false
+  default_http_headers:
+    X-Content-Type-Options: nosniff
+    X-Download-Options: noopen
+    X-Robots-Tag: noindex, nofollow
+
+search:
+  safe_search: 0
+  autocomplete: ""
+  default_lang: ""
+  formats:
+    - json
+    - html
+
+ui:
+  default_locale: en
+  query_in_title: false
+
+# Engine allowlist — ONLY google and duckduckgo enabled.
+# All other default engines are explicitly disabled below; new
+# engines in a future SearXNG release will NOT be auto-allowlisted
+# because the allowlist is enforced here, not just on this side
+# (the Spec 01 SearXNG provider also filters its engines= query
+# parameter to the configured set).
+engines:
+  - name: google
+    disabled: false
+    timeout: 5.0
+    weight: 1.0
+
+  - name: duckduckgo
+    disabled: false
+    timeout: 5.0
+    weight: 1.0
+
+  # Explicit DISABLE list — additive defense in case the in-process
+  # engines= filter is bypassed.
+  - {name: bing,       disabled: true}
+  - {name: yahoo,      disabled: true}
+  - {name: qwant,      disabled: true}
+  - {name: startpage,  disabled: true}
+  - {name: brave,      disabled: true}  # use the contractual Brave API directly
+  - {name: wikipedia,  disabled: true}
+  - {name: wikidata,   disabled: true}
+  - {name: mojeek,     disabled: true}
+  - {name: yandex,     disabled: true}
+  - {name: baidu,      disabled: true}

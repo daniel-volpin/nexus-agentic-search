@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+import tempfile
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from pathlib import Path
-import tempfile
-import logging
 
 import pytest
 
@@ -13,9 +13,9 @@ from nexus.llm import (
     BudgetExceeded,
     InMemoryTelemetrySink,
     InputTooLarge,
+    LiteLLMClient,
     LLMConfig,
     LLMRoleConfig,
-    LiteLLMClient,
     Message,
     ProviderResponse,
     _redact_secrets,
@@ -94,7 +94,7 @@ def make_config() -> LLMConfig:
 
 
 def test_role_config_rejects_alias_model_ids() -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="dated"):
         LLMRoleConfig(
             primary="openai/gpt-4o",
             fallback=[],
@@ -226,7 +226,9 @@ def test_complete_logs_soft_budget_warning(caplog: pytest.LogCaptureFixture) -> 
         assert "soft budget" in caplog.text
 
 
-def test_complete_marks_cost_non_authoritative_on_pricing_drift(caplog: pytest.LogCaptureFixture) -> None:
+def test_complete_marks_cost_non_authoritative_on_pricing_drift(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     backend = FakeLiteLLMBackend(
         token_count=4,
         responses=[FakeProviderResponse(text="ok")],
@@ -372,15 +374,25 @@ def test_complete_emits_telemetry_contract() -> None:
     assert result.text == "ok"
     assert telemetry.spans[0][0] == "llm.synthesis"
     assert telemetry.spans[0][1]["model_id_resolved"] == "openai/gpt-4o-2024-11-20"
-    assert ("llm_input_tokens_total", 4, {"role": "synthesis", "model": "openai/gpt-4o-2024-11-20"}) in telemetry.counters
-    assert ("llm_output_tokens_total", 2, {"role": "synthesis", "model": "openai/gpt-4o-2024-11-20"}) in telemetry.counters
+    assert (
+        "llm_input_tokens_total",
+        4,
+        {"role": "synthesis", "model": "openai/gpt-4o-2024-11-20"},
+    ) in telemetry.counters
+    assert (
+        "llm_output_tokens_total",
+        2,
+        {"role": "synthesis", "model": "openai/gpt-4o-2024-11-20"},
+    ) in telemetry.counters
     assert ("llm_cost_usd_total", 0.1, {"role": "synthesis"}) in telemetry.counters
     assert telemetry.gauges[-1][0] == "llm_budget_remaining_usd"
 
 
 def test_budget_exhaustion_emits_error_telemetry() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
-        backend = FakeLiteLLMBackend(token_count=4, responses=[FakeProviderResponse(text="ok", cost_usd=10.0)])
+        backend = FakeLiteLLMBackend(
+            token_count=4, responses=[FakeProviderResponse(text="ok", cost_usd=10.0)]
+        )
         telemetry = InMemoryTelemetrySink()
         client = LiteLLMClient(
             config=make_config(),
@@ -405,4 +417,8 @@ def test_budget_exhaustion_emits_error_telemetry() -> None:
                 )
             )
 
-        assert ("llm_errors_total", 1, {"role": "synthesis", "reason": "budget_exhausted"}) in telemetry.counters
+        assert (
+            "llm_errors_total",
+            1,
+            {"role": "synthesis", "reason": "budget_exhausted"},
+        ) in telemetry.counters

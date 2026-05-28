@@ -1,17 +1,21 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator, Callable
-from datetime import datetime, timezone
 import hashlib
 import json
 import uuid
+from collections.abc import AsyncIterator, Callable
 
 from nexus.citations import RawCitation, validate_citations
 from nexus.crawl.types import CrawlRequest, Document
 from nexus.llm import BudgetExceeded, CompletionResult, InputTooLarge, LLMUnavailable
-from nexus.rerank import rerank as default_rerank
-from nexus.search.types import RankedResult, Result, SearchRequest, SearchResponse, SearchUnavailable
+from nexus.search.types import (
+    RankedResult,
+    Result,
+    SearchRequest,
+    SearchResponse,
+    SearchUnavailable,
+)
 
 from .prompts import build_synthesis_messages
 from .types import AnswerEvent, OrchestratorConfig
@@ -47,52 +51,120 @@ class Orchestrator:
         final_stage = "error"
         cost_usd = 0.0
 
-        accepted = AnswerEvent(stage="accepted", payload={"request_id": request_id, "normalized_query": req.query})
+        accepted = AnswerEvent(
+            stage="accepted", payload={"request_id": request_id, "normalized_query": req.query}
+        )
         events.append(accepted)
         yield accepted
 
-        expanded = AnswerEvent(stage="expanded", payload={"sub_queries": [req.query] if self._config.enable_query_expansion else []})
+        expanded = AnswerEvent(
+            stage="expanded",
+            payload={"sub_queries": [req.query] if self._config.enable_query_expansion else []},
+        )
         events.append(expanded)
         yield expanded
 
         try:
             response: SearchResponse = await self._search.search(req)
         except SearchUnavailable as exc:
-            event = AnswerEvent(stage="error", payload={"reason": "search_unavailable", "retriable": True, "detail": str(exc)})
-            self._record(request_id, req, "error", started_at, degraded, ungrounded, cost_usd, 0, pages_failed, citations_valid, citations_rejected)
+            event = AnswerEvent(
+                stage="error",
+                payload={"reason": "search_unavailable", "retriable": True, "detail": str(exc)},
+            )
+            self._record(
+                request_id,
+                req,
+                "error",
+                started_at,
+                degraded,
+                ungrounded,
+                cost_usd,
+                0,
+                pages_failed,
+                citations_valid,
+                citations_rejected,
+            )
             yield event
             return
 
-        searched = AnswerEvent(stage="searched", payload={"result_count": len(response.results), "provider": response.provider})
+        searched = AnswerEvent(
+            stage="searched",
+            payload={"result_count": len(response.results), "provider": response.provider},
+        )
         events.append(searched)
         yield searched
 
         ranked_rows = self._rerank(req.query, response.results)[: self._config.crawl_pages_max]
         ranked = AnswerEvent(
             stage="ranked",
-            payload={"kept": [{"url": row.result.url, "title": row.result.title, "score": row.score} for row in ranked_rows]},
+            payload={
+                "kept": [
+                    {"url": row.result.url, "title": row.result.title, "score": row.score}
+                    for row in ranked_rows
+                ]
+            },
         )
         events.append(ranked)
         yield ranked
 
         remaining_before_crawl = self._remaining_budget(started_at)
         if remaining_before_crawl <= 0:
-            event = AnswerEvent(stage="error", payload={"reason": "timeout", "retriable": True, "detail": "wall clock exceeded"})
-            self._record(request_id, req, "error", started_at, degraded, ungrounded, cost_usd, 0, pages_failed, citations_valid, citations_rejected)
+            event = AnswerEvent(
+                stage="error",
+                payload={"reason": "timeout", "retriable": True, "detail": "wall clock exceeded"},
+            )
+            self._record(
+                request_id,
+                req,
+                "error",
+                started_at,
+                degraded,
+                ungrounded,
+                cost_usd,
+                0,
+                pages_failed,
+                citations_valid,
+                citations_rejected,
+            )
             yield event
             return
 
         try:
-            crawled_docs = await asyncio.wait_for(self._crawl_ranked(ranked_rows), timeout=remaining_before_crawl)
-        except asyncio.TimeoutError:
-            event = AnswerEvent(stage="error", payload={"reason": "timeout", "retriable": True, "detail": "wall clock exceeded"})
-            self._record(request_id, req, "error", started_at, degraded, ungrounded, cost_usd, 0, pages_failed, citations_valid, citations_rejected)
+            crawled_docs = await asyncio.wait_for(
+                self._crawl_ranked(ranked_rows), timeout=remaining_before_crawl
+            )
+        except TimeoutError:
+            event = AnswerEvent(
+                stage="error",
+                payload={"reason": "timeout", "retriable": True, "detail": "wall clock exceeded"},
+            )
+            self._record(
+                request_id,
+                req,
+                "error",
+                started_at,
+                degraded,
+                ungrounded,
+                cost_usd,
+                0,
+                pages_failed,
+                citations_valid,
+                citations_rejected,
+            )
             yield event
             return
         ok_docs = [doc for doc in crawled_docs if doc.status == "ok"]
         pages_failed = len(crawled_docs) - len(ok_docs)
         for doc in ok_docs:
-            page_ready = AnswerEvent(stage="page_ready", payload={"url": doc.url, "content_hash": doc.content_hash, "status": doc.status, "render_ms": doc.render_ms})
+            page_ready = AnswerEvent(
+                stage="page_ready",
+                payload={
+                    "url": doc.url,
+                    "content_hash": doc.content_hash,
+                    "status": doc.status,
+                    "render_ms": doc.render_ms,
+                },
+            )
             events.append(page_ready)
             yield page_ready
 
@@ -114,15 +186,42 @@ class Orchestrator:
                     "ungrounded": True,
                 },
             )
-            self._record(request_id, req, final_stage, started_at, degraded, ungrounded, cost_usd, len(ok_docs), pages_failed, citations_valid, citations_rejected)
+            self._record(
+                request_id,
+                req,
+                final_stage,
+                started_at,
+                degraded,
+                ungrounded,
+                cost_usd,
+                len(ok_docs),
+                pages_failed,
+                citations_valid,
+                citations_rejected,
+            )
             yield answer
             return
 
         messages = self._fit_messages(req.query, ok_docs)
         remaining_before_llm = self._remaining_budget(started_at)
         if remaining_before_llm <= 0:
-            event = AnswerEvent(stage="error", payload={"reason": "timeout", "retriable": True, "detail": "wall clock exceeded"})
-            self._record(request_id, req, "error", started_at, degraded, ungrounded, cost_usd, len(ok_docs), pages_failed, citations_valid, citations_rejected)
+            event = AnswerEvent(
+                stage="error",
+                payload={"reason": "timeout", "retriable": True, "detail": "wall clock exceeded"},
+            )
+            self._record(
+                request_id,
+                req,
+                "error",
+                started_at,
+                degraded,
+                ungrounded,
+                cost_usd,
+                len(ok_docs),
+                pages_failed,
+                citations_valid,
+                citations_rejected,
+            )
             yield event
             return
 
@@ -137,23 +236,73 @@ class Orchestrator:
                 ),
                 timeout=remaining_before_llm,
             )
-        except asyncio.TimeoutError:
-            event = AnswerEvent(stage="error", payload={"reason": "timeout", "retriable": True, "detail": "wall clock exceeded"})
-            self._record(request_id, req, "error", started_at, degraded, ungrounded, cost_usd, len(ok_docs), pages_failed, citations_valid, citations_rejected)
+        except TimeoutError:
+            event = AnswerEvent(
+                stage="error",
+                payload={"reason": "timeout", "retriable": True, "detail": "wall clock exceeded"},
+            )
+            self._record(
+                request_id,
+                req,
+                "error",
+                started_at,
+                degraded,
+                ungrounded,
+                cost_usd,
+                len(ok_docs),
+                pages_failed,
+                citations_valid,
+                citations_rejected,
+            )
             yield event
             return
         except BudgetExceeded as exc:
-            event = AnswerEvent(stage="error", payload={"reason": "budget_exhausted", "retriable": False, "detail": str(exc)})
-            self._record(request_id, req, "error", started_at, degraded, ungrounded, cost_usd, len(ok_docs), pages_failed, citations_valid, citations_rejected)
+            event = AnswerEvent(
+                stage="error",
+                payload={"reason": "budget_exhausted", "retriable": False, "detail": str(exc)},
+            )
+            self._record(
+                request_id,
+                req,
+                "error",
+                started_at,
+                degraded,
+                ungrounded,
+                cost_usd,
+                len(ok_docs),
+                pages_failed,
+                citations_valid,
+                citations_rejected,
+            )
             yield event
             return
         except LLMUnavailable as exc:
-            event = AnswerEvent(stage="error", payload={"reason": "llm_unavailable", "retriable": True, "detail": str(exc)})
-            self._record(request_id, req, "error", started_at, degraded, ungrounded, cost_usd, len(ok_docs), pages_failed, citations_valid, citations_rejected)
+            event = AnswerEvent(
+                stage="error",
+                payload={"reason": "llm_unavailable", "retriable": True, "detail": str(exc)},
+            )
+            self._record(
+                request_id,
+                req,
+                "error",
+                started_at,
+                degraded,
+                ungrounded,
+                cost_usd,
+                len(ok_docs),
+                pages_failed,
+                citations_valid,
+                citations_rejected,
+            )
             yield event
             return
 
-        degraded = completion.fallback_used or completion.model_drift or not completion.cost_authoritative or completion.finish_reason == "length"
+        degraded = (
+            completion.fallback_used
+            or completion.model_drift
+            or not completion.cost_authoritative
+            or completion.finish_reason == "length"
+        )
         cost_usd = completion.cost_usd
         parsed_answer_text, raw_citations = self._parse_completion(completion.text)
         synthesized = AnswerEvent(
@@ -169,10 +318,15 @@ class Orchestrator:
         yield synthesized
 
         document_map = {doc.content_hash: doc for doc in ok_docs}
-        valid_citations, rejected_citations = validate_citations(parsed_answer_text, raw_citations, document_map)
+        valid_citations, rejected_citations = validate_citations(
+            parsed_answer_text, raw_citations, document_map
+        )
         citations_valid = len(valid_citations)
         citations_rejected = len(rejected_citations)
-        validated = AnswerEvent(stage="validated", payload={"valid_count": citations_valid, "rejected_count": citations_rejected})
+        validated = AnswerEvent(
+            stage="validated",
+            payload={"valid_count": citations_valid, "rejected_count": citations_rejected},
+        )
         events.append(validated)
         yield validated
 
@@ -186,7 +340,9 @@ class Orchestrator:
                 "answer_text": parsed_answer_text,
                 "citations": valid_citations,
                 "rejected_citations": rejected_citations,
-                "documents": [{"url": doc.url, "content_hash": doc.content_hash} for doc in ok_docs],
+                "documents": [
+                    {"url": doc.url, "content_hash": doc.content_hash} for doc in ok_docs
+                ],
                 "cost_usd": completion.cost_usd,
                 "tokens_in": completion.input_tokens,
                 "tokens_out": completion.output_tokens,
@@ -195,7 +351,19 @@ class Orchestrator:
                 "ungrounded": ungrounded,
             },
         )
-        self._record(request_id, req, final_stage, started_at, degraded, ungrounded, cost_usd, len(ok_docs), pages_failed, citations_valid, citations_rejected)
+        self._record(
+            request_id,
+            req,
+            final_stage,
+            started_at,
+            degraded,
+            ungrounded,
+            cost_usd,
+            len(ok_docs),
+            pages_failed,
+            citations_valid,
+            citations_rejected,
+        )
         yield answer
 
     async def _crawl_ranked(self, ranked_rows: list[RankedResult]) -> list[Document]:
@@ -203,7 +371,7 @@ class Orchestrator:
 
         async def run_one(item: RankedResult) -> Document:
             async with semaphore:
-                return await asyncio.to_thread(self._crawl.fetch, CrawlRequest(url=item.result.url))
+                return await self._crawl.fetch(CrawlRequest(url=item.result.url))
 
         return await asyncio.gather(*(run_one(row) for row in ranked_rows))
 
@@ -277,7 +445,9 @@ class Orchestrator:
                 "citations_rejected": citations_rejected,
             },
         )
-        self._telemetry.increment_counter("orchestrator_requests_total", 1, {"final_stage": final_stage})
+        self._telemetry.increment_counter(
+            "orchestrator_requests_total", 1, {"final_stage": final_stage}
+        )
         self._telemetry.observe_histogram("orchestrator_latency_ms", latency_ms, {})
         self._telemetry.observe_histogram("orchestrator_pages_ok", pages_ok, {})
         self._telemetry.observe_histogram("orchestrator_pages_failed", pages_failed, {})
@@ -292,7 +462,9 @@ class Orchestrator:
     def _simple_rerank(query: str, candidates: list[Result]) -> list[RankedResult]:
         out: list[RankedResult] = []
         for idx, item in enumerate(candidates):
-            out.append(RankedResult(result=item, score=max(0.0, 1.0 - (idx * 0.01)), rerank_rank=idx))
+            out.append(
+                RankedResult(result=item, score=max(0.0, 1.0 - (idx * 0.01)), rerank_rank=idx)
+            )
         return out
 
 

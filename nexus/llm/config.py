@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 import tomllib
+from pathlib import Path
 
 from pydantic import BaseModel, Field, field_validator, model_validator
+
 
 class LLMRoleConfig(BaseModel):
     primary: str
@@ -33,13 +34,13 @@ class LLMConfig(BaseModel):
     pricing_table_version: str = "unknown"
 
     @model_validator(mode="after")
-    def validate_roles(self) -> "LLMConfig":
+    def validate_roles(self) -> LLMConfig:
         if not self.roles:
             raise ValueError("at least one role must be configured")
         return self
 
     @classmethod
-    def from_toml(cls, content: str) -> "LLMConfig":
+    def from_toml(cls, content: str) -> LLMConfig:
         payload = tomllib.loads(content)
         role_section = payload.pop("role", {})
         payload["roles"] = role_section
@@ -48,7 +49,7 @@ class LLMConfig(BaseModel):
         return cls.model_validate(payload)
 
     @classmethod
-    def from_file(cls, path: str | Path) -> "LLMConfig":
+    def from_file(cls, path: str | Path) -> LLMConfig:
         return cls.from_toml(Path(path).read_text())
 
 

@@ -1,0 +1,87 @@
+# Spec 12. Adjacent containers join `agentic-net` and reach the search
+# service via DNS (`http://nexus-search:8186` HTTP, `:8185` MCP). No
+# host ports are published. Host-level egress firewall (deploy/firewall/
+# apply.sh) drops RFC1918 from both containers.
+
+name: nexus
+
+networks:
+  agentic-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.31.255.0/24
+
+volumes:
+  nexus-cache: {}
+  nexus-models: {}
+
+services:
+  nexus-search:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: nexus-agentic-search:dev
+    container_name: nexus-search
+    networks: [agentic-net]
+    # NO host port published. Adjacent containers reach the service via
+    # `http://nexus-search:8186` / `:8185` on the agentic-net bridge.
+    depends_on:
+      searxng:
+        condition: service_healthy
+    environment:
+      BIND_HOST: 0.0.0.0
+      HTTP_PORT: 8186
+      MCP_PORT: 8185
+      METRICS_PORT: 9090
+      SEARXNG_BASE_URL: http://searxng:8080
+      CACHE_ROOT: /var/lib/nexus/cache
+    env_file:
+      - ./secrets/nexus.env
+    volumes:
+      - nexus-cache:/var/lib/nexus/cache
+      - nexus-models:/var/lib/nexus/models
+    read_only: true
+    tmpfs:
+      - /tmp:size=512m
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 4g
+    cpus: "2.0"
+    pids_limit: 512
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8186/v1/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  searxng:
+    image: searxng/searxng:latest
+    container_name: nexus-searxng
+    networks: [agentic-net]
+    environment:
+      SEARXNG_BASE_URL: http://searxng:8080/
+      INSTANCE_NAME: nexus-private
+    env_file:
+      - ./secrets/searxng.env
+    volumes:
+      - ./searxng/settings.yml:/etc/searxng/settings.yml:ro
+      - ./searxng/limiter.toml:/etc/searxng/limiter.toml:ro
+    read_only: true
+    tmpfs:
+      - /var/cache/searxng:size=128m
+      - /tmp:size=64m
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 512m
+    cpus: "0.5"
+    pids_limit: 256
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
