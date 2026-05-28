@@ -8,6 +8,7 @@ from contextlib import closing
 
 import pytest
 from opentelemetry import trace
+from prometheus_client import REGISTRY
 
 from nexus import telemetry
 
@@ -110,6 +111,9 @@ def test_standard_metric_instruments_are_defined() -> None:
         "ORCHESTRATOR_REQUESTS_TOTAL",
         "ORCHESTRATOR_LATENCY_MS",
         "ORCHESTRATOR_UNGROUNDED_TOTAL",
+        "ORCHESTRATOR_PAGES_OK",
+        "ORCHESTRATOR_PAGES_FAILED",
+        "LLM_ERRORS_TOTAL",
         "SEARCH_LATENCY_MS",
         "SEARCH_ERRORS_TOTAL",
         "SEARCH_PROVIDER_USED_TOTAL",
@@ -207,4 +211,80 @@ def test_setup_telemetry_does_not_double_start_metrics_server() -> None:
         service_version="0.0.0",
         metrics_port=port,
         metrics_bind_host="127.0.0.1",
+    )
+
+
+# ---------- PrometheusTelemetrySink ----------
+
+
+def test_sink_forwards_labelled_counter_to_instrument() -> None:
+    sink = telemetry.PrometheusTelemetrySink()
+    labels = {"role": "synthesis", "reason": "sink_unit_test"}
+    before = REGISTRY.get_sample_value("llm_errors_total", labels) or 0.0
+    sink.increment_counter("llm_errors_total", 1, labels)
+    after = REGISTRY.get_sample_value("llm_errors_total", labels)
+    assert after == before + 1
+
+
+def test_sink_forwards_unlabelled_counter() -> None:
+    sink = telemetry.PrometheusTelemetrySink()
+    before = REGISTRY.get_sample_value("orchestrator_ungrounded_total") or 0.0
+    sink.increment_counter("orchestrator_ungrounded_total", 1, {})
+    after = REGISTRY.get_sample_value("orchestrator_ungrounded_total")
+    assert after == before + 1
+
+
+def test_sink_forwards_histogram() -> None:
+    sink = telemetry.PrometheusTelemetrySink()
+    before = REGISTRY.get_sample_value("orchestrator_pages_ok_sum") or 0.0
+    sink.observe_histogram("orchestrator_pages_ok", 3, {})
+    after = REGISTRY.get_sample_value("orchestrator_pages_ok_sum")
+    assert after == before + 3
+
+
+def test_sink_forwards_gauge() -> None:
+    sink = telemetry.PrometheusTelemetrySink()
+    sink.set_gauge("llm_budget_remaining_usd", 4.2, {"role": "sink_unit_test"})
+    value = REGISTRY.get_sample_value(
+        "llm_budget_remaining_usd", {"role": "sink_unit_test"}
+    )
+    assert value == 4.2
+
+
+def test_sink_unmapped_name_is_silent_noop() -> None:
+    sink = telemetry.PrometheusTelemetrySink()
+    # Unknown names must be dropped, never raised — telemetry is off the
+    # critical path.
+    sink.increment_counter("does_not_exist", 1, {"x": "y"})
+    sink.observe_histogram("does_not_exist", 1, {})
+    sink.set_gauge("does_not_exist", 1, {})
+
+
+def test_sink_swallows_label_mismatch() -> None:
+    sink = telemetry.PrometheusTelemetrySink()
+    # Wrong label name for a real instrument would raise inside
+    # prometheus_client; the sink must swallow it.
+    sink.increment_counter("llm_errors_total", 1, {"wrong_label": "x"})
+
+
+def test_sink_record_span_drops_non_primitive_attributes() -> None:
+    telemetry.setup_telemetry(service_name="nexus-test", service_version="0.0.0")
+    sink = telemetry.PrometheusTelemetrySink()
+    # None and arbitrary objects are dropped; primitives are kept. Must
+    # not raise.
+    sink.record_span(
+        "orchestrator.search",
+        {"final_stage": "answer", "freshness": None, "obj": object(), "cost_usd": 0.0},
+    )
+
+
+def test_sink_conforms_to_llm_telemetry_sink_protocol() -> None:
+    from nexus.llm.telemetry import LLMTelemetrySink
+
+    # Structural conformance is enforced by mypy at this assignment; the
+    # runtime assertions document the surface.
+    sink: LLMTelemetrySink = telemetry.PrometheusTelemetrySink()
+    assert all(
+        hasattr(sink, m)
+        for m in ("record_span", "increment_counter", "observe_histogram", "set_gauge")
     )
