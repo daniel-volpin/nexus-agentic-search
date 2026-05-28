@@ -1,4 +1,4 @@
-"""Process entrypoint (Spec 12 §Container image).
+"""Process entrypoint.
 
 Boot sequence (deliberate order):
 
@@ -14,7 +14,7 @@ Boot sequence (deliberate order):
 Each step has a single failure mode and a clear log line. The selftest
 is the last gate before the service accepts traffic.
 
-Search wiring (Spec 01): the orchestrator gets a real
+Search wiring: the orchestrator gets a real
 ``DefaultSearchClient`` — Brave primary with SearXNG (google +
 duckduckgo, breaker-guarded) fallback. With no Brave key the router
 uses SearXNG only; if neither is reachable a search raises
@@ -29,9 +29,11 @@ import asyncio
 import logging
 import signal
 from collections.abc import Awaitable
+from typing import Any
 
 import uvicorn
 
+from nexus.cache import namespaces as cache_ns
 from nexus.cache import setup_cache, shutdown_cache
 from nexus.config import Config, load_config
 from nexus.crawl import CrawlClient
@@ -43,13 +45,13 @@ from nexus.mcp.server import MCPTransport, create_streamable_http_app
 from nexus.orchestrator.service import Orchestrator
 from nexus.search import BraveProvider, DefaultSearchClient, SearXNGProvider
 from nexus.security import run_selftest
-from nexus.telemetry import setup_telemetry
+from nexus.telemetry import PrometheusTelemetrySink, setup_telemetry
 
 logger = logging.getLogger(__name__)
 
 
 def _build_search_client(config: Config) -> DefaultSearchClient:
-    """Brave-first router with SearXNG fallback (Spec 01).
+    """Brave-first router with SearXNG fallback.
 
     Both providers are real. If no Brave key is configured the router
     transparently uses SearXNG (google + duckduckgo, breaker-guarded).
@@ -67,7 +69,10 @@ def _build_search_client(config: Config) -> DefaultSearchClient:
             "brave_not_configured_using_searxng_only",
             extra={"engines": list(config.searxng_engines)},
         )
-    return DefaultSearchClient(brave=brave, searxng=searxng)
+    # cache_ns.SEARCH_BRAVE is populated by setup_cache() (called before
+    # this runs); it's the shared search-response cache (provider-agnostic
+    # merged responses). None when the cache is disabled.
+    return DefaultSearchClient(brave=brave, searxng=searxng, cache=cache_ns.SEARCH_BRAVE)
 
 
 async def amain() -> int:
@@ -92,7 +97,10 @@ async def amain() -> int:
 
     setup_cache(root=config.cache_root, total_size_gb=config.cache_total_size_gb)
 
-    llm_client = LiteLLMClient(config=config.llm)
+    # One sink for the whole process: forwards orchestrator + LLM metrics
+    # to the Prometheus instruments scraped on the metrics port.
+    telemetry_sink = PrometheusTelemetrySink()
+    llm_client = LiteLLMClient(config=config.llm, telemetry=telemetry_sink)
 
     selftest_report = await run_selftest(llm_client=llm_client)
     if selftest_report.critical_failures:
@@ -108,8 +116,8 @@ async def amain() -> int:
             extra={"failures": list(selftest_report.failures)},
         )
 
-    http_server, http_task = _start_http(config, llm_client)
-    mcp_task = _start_mcp(config, llm_client)
+    http_server, http_task = _start_http(config, llm_client, telemetry_sink)
+    mcp_task = _start_mcp(config, llm_client, telemetry_sink)
 
     logger.info(
         "service_ready",
@@ -140,44 +148,41 @@ async def amain() -> int:
 # ---------- transport bootstrap ----------
 
 
-def _build_orchestrator(config: Config, llm_client: LiteLLMClient) -> Orchestrator:
-    """Wire the real search router + crawl client + LLM gateway."""
+def _build_orchestrator(
+    config: Config, llm_client: LiteLLMClient, telemetry_sink: PrometheusTelemetrySink
+) -> Orchestrator:
+    """Wire the real search router + crawl client + LLM gateway, with the
+    disk caches (populated by setup_cache) injected."""
     return Orchestrator(
         search_client=_build_search_client(config),
-        crawl_client=CrawlClient(ssrf_guard=SSRFGuard()),
+        crawl_client=CrawlClient(ssrf_guard=SSRFGuard(), cache=cache_ns.CRAWL_DOCUMENT),
         llm_client=llm_client,
+        telemetry=telemetry_sink,
     )
 
 
 def _start_http(
-    config: Config, llm_client: LiteLLMClient
+    config: Config, llm_client: LiteLLMClient, telemetry_sink: PrometheusTelemetrySink
 ) -> tuple[uvicorn.Server, asyncio.Task[None]]:
     app = create_http_app(
-        orchestrator=_build_orchestrator(config, llm_client),
+        orchestrator=_build_orchestrator(config, llm_client, telemetry_sink),
         llm_config_roles=dict(config.llm.roles),
         config=config.http,
     )
-    server = uvicorn.Server(
-        uvicorn.Config(
-            app=app,
-            host=config.bind_host,
-            port=config.http_port,
-            log_config=None,  # we own logging
-            access_log=False,
-            lifespan="off",
-        )
-    )
+    server = uvicorn.Server(_uvicorn_config(app, config.bind_host, config.http_port))
     task = asyncio.create_task(server.serve(), name="http_server")
     return server, task
 
 
-def _start_mcp(config: Config, llm_client: LiteLLMClient) -> asyncio.Task[None]:
+def _start_mcp(
+    config: Config, llm_client: LiteLLMClient, telemetry_sink: PrometheusTelemetrySink
+) -> asyncio.Task[None]:
     """MCP server. Runs on its own uvicorn instance via the
     streamable-http app FastMCP provides. Falls back to a no-op task
     in environments where fastmcp's HTTP server is not importable
     (so tests can run without it)."""
     transport = MCPTransport(
-        orchestrator=_build_orchestrator(config, llm_client),
+        orchestrator=_build_orchestrator(config, llm_client, telemetry_sink),
         llm_config_roles=dict(config.llm.roles),
         config=config.mcp,
     )
@@ -191,17 +196,24 @@ def _start_mcp(config: Config, llm_client: LiteLLMClient) -> asyncio.Task[None]:
 
         return asyncio.create_task(_noop(), name="mcp_noop")
 
-    server = uvicorn.Server(
-        uvicorn.Config(
-            app=app,
-            host=config.bind_host,
-            port=config.mcp_port,
-            log_config=None,
-            access_log=False,
-            lifespan="off",
-        )
-    )
+    server = uvicorn.Server(_uvicorn_config(app, config.bind_host, config.mcp_port))
     return asyncio.create_task(server.serve(), name="mcp_server")
+
+
+def _uvicorn_config(app: Any, host: str, port: int) -> uvicorn.Config:
+    """Shared uvicorn config. ``server_header=False`` suppresses uvicorn's
+    own ``Server: uvicorn`` header so our middleware's ``Server: nexus`` is
+    the only one (no framework disclosure / duplicate header). We own
+    logging, so uvicorn's log config and access log are off."""
+    return uvicorn.Config(
+        app=app,
+        host=host,
+        port=port,
+        log_config=None,
+        access_log=False,
+        lifespan="off",
+        server_header=False,
+    )
 
 
 # ---------- shutdown plumbing ----------

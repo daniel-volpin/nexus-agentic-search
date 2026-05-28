@@ -1,18 +1,15 @@
-"""Runtime startup security self-test (Spec 10 §Adversarial test catalog).
+"""Runtime startup security self-test.
 
-Each check asserts a Spec 10 invariant holds at boot. The expected
-caller is the service entrypoint (`nexus.main`) which decides what to
-do based on the report's ``critical_failures`` set:
+Each check asserts a core security invariant holds at boot. The caller
+is the service entrypoint (``nexus.main``), which decides what to do
+based on the report's ``critical_failures`` set:
 
 - Critical failures (``ssrf_guard``, ``redaction``,
-  ``synthesis_tools_disabled``) MUST prevent startup. They indicate
-  the in-process defense has regressed and is not safe to expose.
+  ``synthesis_tools_disabled``) MUST prevent startup. They mean an
+  in-process defense has regressed and is not safe to expose.
 - Non-critical failures (``egress_firewall``) are logged but do not
   block startup. In dev the host firewall is rarely installed; in prod
-  the absence is meaningful but the in-process SSRF guard still applies.
-
-Operational guidance lives in :mod:`docs.specs` Spec 10 §Adversarial
-test catalog.
+  its absence is meaningful but the in-process SSRF guard still applies.
 """
 
 from __future__ import annotations
@@ -81,7 +78,7 @@ class SelftestReport:
 
 
 async def run_selftest(*, llm_client: LiteLLMClient | None = None) -> SelftestReport:
-    """Run the four Spec 10 startup checks. Never raises.
+    """Run the four startup checks. Never raises.
 
     Pass an ``llm_client`` to reuse a configured client; if None the
     selftest constructs a minimal config-only instance to exercise the
@@ -110,8 +107,8 @@ async def run_selftest(*, llm_client: LiteLLMClient | None = None) -> SelftestRe
 
 
 async def _check_ssrf_guard(failures: list[str]) -> bool:
-    """Spec 10 §SSRF guard: the in-process guard rejects loopback,
-    link-local cloud metadata, and RFC1918."""
+    """The in-process SSRF guard rejects loopback, link-local cloud
+    metadata, and RFC1918 addresses."""
     guard = SSRFGuard()
     probes = (
         "http://169.254.169.254/latest/meta-data/",
@@ -130,8 +127,7 @@ async def _check_ssrf_guard(failures: list[str]) -> bool:
 
 
 def _check_redaction(failures: list[str]) -> bool:
-    """Spec 10 §Logging / secret redaction: the redactor masks known
-    key shapes."""
+    """The secret redactor masks known key shapes."""
     redacted = _redact_secrets(f"emit {_REDACTION_TEST_KEY} suffix")
     if "[REDACTED]" not in redacted or _REDACTION_TEST_KEY in redacted:
         failures.append("redaction: secret pattern survived the filter")
@@ -142,7 +138,7 @@ def _check_redaction(failures: list[str]) -> bool:
 async def _check_synthesis_tools_disabled(
     client: LiteLLMClient | None, failures: list[str]
 ) -> bool:
-    """Spec 10 §Synthesis-role hardening: the LLM gateway rejects
+    """The LLM gateway rejects
     ``complete(role="synthesis", tools=[...])`` at the API boundary.
     """
     instance = client or _build_throwaway_client()
@@ -164,9 +160,8 @@ async def _check_synthesis_tools_disabled(
 
 
 async def _check_egress_firewall(failures: list[str]) -> bool:
-    """Spec 10 §SSRF guard / Spec 12 §Network egress firewall: a
-    container with the host firewall correctly applied cannot reach
-    RFC1918 destinations at the network layer.
+    """A container with the host firewall correctly applied cannot
+    reach RFC1918 destinations at the network layer.
 
     In dev (laptop, CI without firewall configured) the test still
     succeeds because the probe IP simply has no route. In prod with

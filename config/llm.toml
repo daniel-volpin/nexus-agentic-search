@@ -1,3 +1,21 @@
+# Free-tier profile: every role runs on Google Gemini (AI Studio free tier).
+#
+# Set GEMINI_API_KEY (from https://aistudio.google.com/apikey — free) and
+# leave BRAVE_API_KEY empty; the search router then uses the self-hosted
+# SearXNG sidecar (google + duckduckgo). Net marginal cost: $0.
+#
+# Model ids are version-pinned (validation rejects floating aliases like
+# "gemini-2.0-flash"). To switch backends, repoint `primary` per role:
+#   - Local, fully private:  "ollama/llama3.1:8b" (run Ollama on the host)
+#   - Paid frontier quality: "openai/gpt-4o-2024-11-20"
+# `fallback` may list alternates; a provider is skipped automatically when
+# its API key env var is absent.
+#
+# The dollar budget below is a runaway guard, not the real limit — the
+# free tier is bounded by requests/min and requests/day, not dollars.
+# LiteLLM still reports a paid-equivalent cost, so this caps a bug, not
+# your bill.
+
 daily_usd_budget = 10.0
 soft_budget_fraction = 0.8
 pricing_table_version = "litellm-1.86.1"

@@ -1,14 +1,21 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 
-from .resources import read_roles, read_status
+from .resources import RoleConfigView, read_roles, read_status
 from .schemas import truncate_answer_payload, validate_input, validate_output
 from .types import MCPConfig, StatusState
 
 
 class MCPTransport:
-    def __init__(self, *, orchestrator, llm_config_roles: dict[str, object], config: MCPConfig) -> None:
+    def __init__(
+        self,
+        *,
+        orchestrator,
+        llm_config_roles: Mapping[str, RoleConfigView],
+        config: MCPConfig,
+    ) -> None:
         self._orchestrator = orchestrator
         self._roles = llm_config_roles
         self._config = config
@@ -53,7 +60,10 @@ class MCPTransport:
             self.progress_events.append(progress_payload)
             if ctx is not None:
                 progress_index += 1
-                await ctx.report_progress(progress=float(progress_index), message=json.dumps(progress_payload, default=str))
+                await ctx.report_progress(
+                    progress=float(progress_index),
+                    message=json.dumps(progress_payload, default=str),
+                )
 
         return {"error": "internal", "retriable": False}
 
@@ -77,8 +87,18 @@ def create_streamable_http_app(*, transport: MCPTransport):
 
     mcp = FastMCP("nexus-search")
 
-    @mcp.tool(name="agentic_search", description="Run an agentic web search and return a citation-grounded answer.")
-    async def agentic_search(query: str, freshness: str = "any", max_results: int = 20, lang: str | None = None, country: str | None = None, ctx: Context | None = None):
+    @mcp.tool(
+        name="agentic_search",
+        description="Run an agentic web search and return a citation-grounded answer.",
+    )
+    async def agentic_search(
+        query: str,
+        freshness: str = "any",
+        max_results: int = 20,
+        lang: str | None = None,
+        country: str | None = None,
+        ctx: Context | None = None,
+    ):
         result = await transport.handle_call(
             {
                 "query": query,
@@ -92,9 +112,23 @@ def create_streamable_http_app(*, transport: MCPTransport):
         if "error" in result:
             raise ToolError(json.dumps(result, separators=(",", ":")))
         return result
-    agentic_search.output_schema = {
+
+    # The decorated tool carries its JSON output schema as an attribute;
+    # set via setattr because the decorator's return type doesn't declare it.
+    output_schema = {
         "type": "object",
-        "required": ["answer_text", "citations", "rejected_citations", "documents", "cost_usd", "tokens_in", "tokens_out", "latency_ms", "degraded", "ungrounded"],
+        "required": [
+            "answer_text",
+            "citations",
+            "rejected_citations",
+            "documents",
+            "cost_usd",
+            "tokens_in",
+            "tokens_out",
+            "latency_ms",
+            "degraded",
+            "ungrounded",
+        ],
         "properties": {
             "answer_text": {"type": "string"},
             "citations": {"type": "array"},
@@ -108,6 +142,7 @@ def create_streamable_http_app(*, transport: MCPTransport):
             "ungrounded": {"type": "boolean"},
         },
     }
+    setattr(agentic_search, "output_schema", output_schema)  # noqa: B010
 
     @mcp.resource("nexus://status")
     def status_resource() -> dict:
@@ -117,7 +152,9 @@ def create_streamable_http_app(*, transport: MCPTransport):
     def roles_resource() -> dict:
         return transport.read_resource("nexus://config/roles")
 
-    return create_http_app(server=mcp, streamable_http_path="/mcp", auth=create_bearer_auth(transport._config.token))
+    return create_http_app(
+        server=mcp, streamable_http_path="/mcp", auth=create_bearer_auth(transport._config.token)
+    )
 
 
 def create_bearer_auth(token: str):

@@ -1,4 +1,4 @@
-"""Search routing (Spec 01 §Activation policy).
+"""Search routing.
 
 ``DefaultSearchClient`` is the single entry point the orchestrator
 depends on. Routing is deterministic and explicit — no silent
@@ -20,6 +20,10 @@ import logging
 import time
 from typing import Protocol
 
+from nexus.cache import CacheLike
+from nexus.cache.keys import search_key
+from nexus.telemetry import CACHE_HIT_TOTAL, CACHE_MISS_TOTAL
+
 from .brave import BraveProvider
 from .searxng import SearXNGProvider
 from .types import Result, SearchRequest, SearchResponse, SearchUnavailable
@@ -27,6 +31,7 @@ from .types import Result, SearchRequest, SearchResponse, SearchUnavailable
 logger = logging.getLogger(__name__)
 
 _MIN_RESULTS_BEFORE_FALLBACK = 3
+_CACHE_NAMESPACE = "search"
 
 
 class SearchClient(Protocol):
@@ -34,18 +39,48 @@ class SearchClient(Protocol):
 
 
 class DefaultSearchClient:
-    """Brave-first router with SearXNG fallback."""
+    """Brave-first router with SearXNG fallback and an optional result cache.
+
+    The cache (if provided) stores the *merged* response keyed by the
+    logical query — provider-agnostic, so a Brave hit and a
+    Brave+SearXNG merge for the same query share one entry. Caching is
+    best-effort: a cache miss or backend error simply runs the live
+    route.
+    """
 
     def __init__(
         self,
         *,
         brave: BraveProvider,
         searxng: SearXNGProvider | None = None,
+        cache: CacheLike | None = None,
     ) -> None:
         self._brave = brave
         self._searxng = searxng
+        self._cache = cache
 
     async def search(self, req: SearchRequest) -> SearchResponse:
+        key = search_key(
+            query=req.query,
+            freshness=req.freshness,
+            max_results=req.max_results,
+            lang=req.lang,
+            country=req.country,
+        )
+        if self._cache is not None:
+            cached = await self._cache.get(key)
+            if cached is not None:
+                CACHE_HIT_TOTAL.labels(namespace=_CACHE_NAMESPACE).inc()
+                return SearchResponse.model_validate(cached)
+            CACHE_MISS_TOTAL.labels(namespace=_CACHE_NAMESPACE).inc()
+
+        response = await self._route(req)
+
+        if self._cache is not None:
+            await self._cache.set(key, response.model_dump(mode="json"))
+        return response
+
+    async def _route(self, req: SearchRequest) -> SearchResponse:
         started = time.perf_counter()
 
         if not self._brave.enabled:

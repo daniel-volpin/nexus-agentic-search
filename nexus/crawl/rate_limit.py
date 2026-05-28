@@ -1,4 +1,4 @@
-"""Per-domain crawl rate limiting (Spec 03 §Per-domain rate limiting).
+"""Per-domain crawl rate limiting.
 
 A token bucket keyed by registrable domain (eTLD+1 approximated by the
 last two labels — no external dependency). Default 1 request / 1.5s,

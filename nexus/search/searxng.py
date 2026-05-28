@@ -1,4 +1,4 @@
-"""SearXNG fallback provider (Spec 01 §SearXNG fallback provider).
+"""SearXNG fallback provider.
 
 Engine-locked to ``google`` + ``duckduckgo``. Two safety controls,
 both mandatory because scraping Google from a residential IP can get

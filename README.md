@@ -11,6 +11,8 @@ uv run pytest -q
 
 ## Run locally
 
+Bearer tokens must be at least 32 characters:
+
 ```bash
 export NEXUS_HTTP_TOKEN=0123456789abcdef0123456789abcdef
 export NEXUS_MCP_TOKEN=fedcba9876543210fedcba9876543210
@@ -38,6 +40,7 @@ For reusable Gitea operational workflow, use Codex skill: `~/.codex/skills/gitea
    - `VERTEX_PROJECT=your-gcp-project-id`
    - `VERTEX_LOCATION=global`
    - `GOOGLE_APPLICATION_CREDENTIALS=/absolute/path/to/service-account-key.json`
+```
 
 ## Common commands
 
@@ -60,10 +63,10 @@ For reusable Gitea operational workflow, use Codex skill: `~/.codex/skills/gitea
   ```
 
 
-## Reranker model decision (Spec 02)
+## Reranking
 
-We are standardizing on **cross-encoder reranking** for top-K candidates.
-
-Current default target model: `BAAI/bge-reranker-v2-m3` (open weights, multilingual, strong quality/latency tradeoff for local CPU-first deployments).
-
-A short decision record with comparison criteria is in `docs/decisions/02-reranker-model-choice.md`.
+The current default reranker is a deterministic **lexical** scorer
+(query/candidate token overlap) — real and explainable, with no heavy
+model dependency. The interface matches a cross-encoder, so swapping in
+`BAAI/bge-reranker-v2-m3` (open weights, multilingual) later is a config
+change, not a rewrite. Decision record: `docs/decisions/02-reranker-model-choice.md`.

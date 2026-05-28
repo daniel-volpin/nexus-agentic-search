@@ -1,6 +1,6 @@
-"""Async diskcache wrapper (Spec 09).
+"""Async diskcache wrapper.
 
-Properties asserted by Spec 09 §Invariants:
+Guarantees:
 
 - Schema-version validation on read: mismatch ⇒ miss (no migration).
 - Write timeout: writes that don't complete within
@@ -11,8 +11,7 @@ Properties asserted by Spec 09 §Invariants:
 - Disk full / corruption / any backend error: converted to miss /
   silently-dropped write. The cache MUST NOT fail user requests.
 - ``set`` never persists secrets — values are stored as-is; the contract
-  is that callers don't pass secrets in. Enforced by ``test_cache_secrets``
-  (Spec 13 §Adversarial-security §Logging/secrets).
+  is that callers don't pass secrets in.
 
 Concurrency: diskcache uses SQLite file locks, so multi-task and
 multi-process callers serialize at the storage layer. The wrapper
@@ -42,7 +41,7 @@ _DEFAULT_CULL_LIMIT: Final[int] = 10
 class DiskCacheBackend:
     """Per-namespace disk cache.
 
-    One instance per logical namespace (Spec 09 §Namespaces). Each instance
+    One instance per logical namespace. Each instance
     owns its own SQLite file inside ``root/<namespace>/`` with mode 0700 on
     the directory.
     """
@@ -67,8 +66,15 @@ class DiskCacheBackend:
         try:
             path.mkdir(parents=True, exist_ok=True)
             os.chmod(path, 0o700)
+            # JSONDisk (not the default pickle Disk) closes CVE-2025-69872:
+            # diskcache's pickle serializer lets anyone with write access to
+            # the cache dir achieve RCE on read. We only ever store
+            # JSON-serializable envelopes, so JSON serialization is a clean
+            # drop-in with no pickle deserialization anywhere.
             cache = diskcache.Cache(
                 str(path),
+                disk=diskcache.JSONDisk,
+                disk_compress_level=0,
                 size_limit=size_limit_bytes,
                 cull_limit=_DEFAULT_CULL_LIMIT,
             )

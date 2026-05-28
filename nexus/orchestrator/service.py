@@ -8,7 +8,7 @@ from collections.abc import AsyncIterator, Callable
 
 from nexus.citations import RawCitation, validate_citations
 from nexus.crawl.types import CrawlRequest, Document
-from nexus.llm import BudgetExceeded, CompletionResult, InputTooLarge, LLMUnavailable
+from nexus.llm import BudgetExceeded, CompletionResult, InputTooLarge, LLMUnavailable, Message
 from nexus.search.types import (
     RankedResult,
     Result,
@@ -375,7 +375,7 @@ class Orchestrator:
 
         return await asyncio.gather(*(run_one(row) for row in ranked_rows))
 
-    def _fit_messages(self, query: str, documents: list[Document]) -> list[dict]:
+    def _fit_messages(self, query: str, documents: list[Document]) -> list[Message]:
         working_docs = list(documents)
         while working_docs:
             messages = build_synthesis_messages(query, working_docs)

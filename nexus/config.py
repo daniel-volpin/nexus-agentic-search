@@ -1,4 +1,4 @@
-"""Central process-wide configuration (Spec 12 §Secrets + Spec 11 + Spec 09).
+"""Central process-wide configuration.
 
 Each component owns its own typed config object (``LLMConfig``,
 ``HTTPConfig``, ``MCPConfig``, …). This module composes them and
@@ -64,7 +64,7 @@ class _Env(BaseSettings):
     cache_total_size_gb: float = 2.0
 
     # Transport bind — container-internal; the firewall / docker network
-    # boundary enforces edge isolation. Spec 12 §Binding.
+    # boundary enforces edge isolation.
     bind_host: str = "0.0.0.0"  # noqa: S104  # container-internal bind only
     http_port: int = 8186
     mcp_port: int = 8185

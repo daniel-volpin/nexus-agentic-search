@@ -56,13 +56,10 @@ jobs:
         run: uv run pytest -q tests/unit tests/security --cov=nexus --cov-report=term-missing
 
   typecheck:
-    # Advisory: mypy is not strict yet across the full codebase. The job is
-    # allowed to fail; reviewers see drift but PRs are not blocked. Flipped
-    # to blocking once `make typecheck` is clean on main.
-    name: mypy (advisory)
+    # Blocking: nexus/ is mypy-clean. A new type error fails the PR.
+    name: mypy
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v3
@@ -77,3 +74,27 @@ jobs:
         run: uv sync
       - name: Mypy
         run: uv run mypy nexus
+
+  audit:
+    # Dependency vulnerability scan. CVE-2025-69872 (diskcache pickle RCE)
+    # is mitigated in code — we use diskcache.JSONDisk, never pickle — but
+    # pip-audit still flags the version since no fixed release exists yet.
+    # It is explicitly ignored here; drop the ignore once diskcache ships a
+    # fix and we bump it. Any OTHER vulnerability fails the build.
+    name: pip-audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: |
+            uv.lock
+            pyproject.toml
+      - name: Install Python
+        run: uv python install 3.11
+      - name: Install deps
+        run: uv sync
+      - name: pip-audit
+        run: uv run --with pip-audit pip-audit --ignore-vuln CVE-2025-69872

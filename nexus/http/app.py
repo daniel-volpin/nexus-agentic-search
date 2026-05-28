@@ -34,7 +34,10 @@ def create_app(*, orchestrator, llm_config_roles: dict[str, object], config: HTT
 
     @app.exception_handler(HTTPException)
     async def http_exception_handler(request: Request, exc: HTTPException):
-        detail = exc.detail
+        # HTTPException.detail is typed as str, but we deliberately raise it
+        # with structured dicts elsewhere; widen to object so the dict branch
+        # is reachable.
+        detail: object = exc.detail
         if isinstance(detail, dict) and "error" in detail:
             return JSONResponse(
                 status_code=exc.status_code, content=detail, headers={"Server": "nexus"}
@@ -62,7 +65,9 @@ def create_app(*, orchestrator, llm_config_roles: dict[str, object], config: HTT
         try:
             return json.loads(request.state.cached_body.decode("utf-8") or "{}")
         except json.JSONDecodeError as exc:
-            raise HTTPException(status_code=422, detail={"error": "invalid_input", "field": "body"}) from exc
+            raise HTTPException(
+                status_code=422, detail={"error": "invalid_input", "field": "body"}
+            ) from exc
 
     def _validate_request(payload: dict) -> SearchRequest:
         try:

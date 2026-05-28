@@ -20,6 +20,7 @@ from .redaction import _redact_secrets
 from .telemetry import LLMTelemetrySink
 from .types import (
     CompletionResult,
+    FinishReason,
     LiteLLMBackend,
     Message,
     ProviderResponse,
@@ -81,19 +82,18 @@ class LiteLLMClient:
     ) -> CompletionResult:
         started_at = time.perf_counter()
         if role == "synthesis" and tools:
-            # Spec 10 §Synthesis-role hardening: tool calling MUST be
-            # disabled at the API parameter. Defense in depth against
-            # prompt-injection forcing a tool call from inside crawled
-            # content. The orchestrator already passes tools=None for
-            # this role; this enforcement is the boundary backstop.
-            raise SynthesisToolsDisabled(
-                "tools=None is required for role='synthesis' (Spec 10)"
-            )
+            # Tool calling is disabled for synthesis at the API parameter,
+            # not just by prompt: defense in depth against prompt-injection
+            # in crawled content coercing a tool call. The orchestrator
+            # already passes tools=None; this is the boundary backstop.
+            raise SynthesisToolsDisabled("tools=None is required for role='synthesis'")
         role_config = self._config.roles[role]
         self._ensure_budget(role)
         input_tokens = self.count_tokens(role, messages)
         if input_tokens > role_config.max_input_tokens:
-            raise InputTooLarge(f"input tokens {input_tokens} exceed limit {role_config.max_input_tokens}")
+            raise InputTooLarge(
+                f"input tokens {input_tokens} exceed limit {role_config.max_input_tokens}"
+            )
 
         providers = await self._providers_for_role(role)
         errors: list[str] = []
@@ -144,17 +144,27 @@ class LiteLLMClient:
                         )
                     )
                 if not cost_authoritative:
-                    self._logger.warning(_redact_secrets(f"pricing table drift detected configured={self._config.pricing_table_version} runtime={self._backend.pricing_table_version}"))
+                    self._logger.warning(
+                        _redact_secrets(
+                            f"pricing table drift detected configured={self._config.pricing_table_version} runtime={self._backend.pricing_table_version}"
+                        )
+                    )
                 if total_spend >= self._config.daily_usd_budget * self._config.soft_budget_fraction:
-                    self._logger.warning(_redact_secrets(f"soft budget threshold reached for role={role}"))
+                    self._logger.warning(
+                        _redact_secrets(f"soft budget threshold reached for role={role}")
+                    )
                 if total_spend >= self._config.daily_usd_budget:
-                    self._logger.warning(_redact_secrets(f"daily llm budget exhausted for role={role}"))
+                    self._logger.warning(
+                        _redact_secrets(f"daily llm budget exhausted for role={role}")
+                    )
                 self._record_success_telemetry(result=result, latency_ms=_latency_ms(started_at))
                 return result
             except Exception as exc:
                 errors.append(_redact_secrets(str(exc)))
 
-        self._record_error_telemetry(role=role, reason="all_providers_failed", latency_ms=_latency_ms(started_at))
+        self._record_error_telemetry(
+            role=role, reason="all_providers_failed", latency_ms=_latency_ms(started_at)
+        )
         raise LLMUnavailable("; ".join(errors) if errors else "no providers available")
 
     async def stream_complete(
@@ -169,7 +179,9 @@ class LiteLLMClient:
         self._ensure_budget(role)
         input_tokens = self.count_tokens(role, messages)
         if input_tokens > role_config.max_input_tokens:
-            raise InputTooLarge(f"input tokens {input_tokens} exceed limit {role_config.max_input_tokens}")
+            raise InputTooLarge(
+                f"input tokens {input_tokens} exceed limit {role_config.max_input_tokens}"
+            )
 
         providers = await self._providers_for_role(role)
         errors: list[str] = []
@@ -242,7 +254,9 @@ class LiteLLMClient:
             except Exception as exc:
                 errors.append(_redact_secrets(str(exc)))
 
-        self._record_error_telemetry(role=role, reason="all_providers_failed", latency_ms=_latency_ms(started_at))
+        self._record_error_telemetry(
+            role=role, reason="all_providers_failed", latency_ms=_latency_ms(started_at)
+        )
         raise LLMUnavailable("; ".join(errors) if errors else "no providers available")
 
     def count_tokens(self, role: str, messages: list[Message]) -> int:
@@ -328,11 +342,25 @@ class LiteLLMClient:
                 "model_drift": result.model_drift,
             },
         )
-        self._telemetry.increment_counter("llm_input_tokens_total", result.input_tokens, {"role": result.role, "model": result.model_id})
-        self._telemetry.increment_counter("llm_output_tokens_total", result.output_tokens, {"role": result.role, "model": result.model_id})
-        self._telemetry.increment_counter("llm_cost_usd_total", result.cost_usd, {"role": result.role})
+        self._telemetry.increment_counter(
+            "llm_input_tokens_total",
+            result.input_tokens,
+            {"role": result.role, "model": result.model_id},
+        )
+        self._telemetry.increment_counter(
+            "llm_output_tokens_total",
+            result.output_tokens,
+            {"role": result.role, "model": result.model_id},
+        )
+        self._telemetry.increment_counter(
+            "llm_cost_usd_total", result.cost_usd, {"role": result.role}
+        )
         self._telemetry.observe_histogram("llm_latency_ms", latency_ms, {"role": result.role})
-        self._telemetry.set_gauge("llm_budget_remaining_usd", self.budget_remaining_usd(result.role), {"role": result.role})
+        self._telemetry.set_gauge(
+            "llm_budget_remaining_usd",
+            self.budget_remaining_usd(result.role),
+            {"role": result.role},
+        )
 
     def _record_error_telemetry(self, *, role: str, reason: str, latency_ms: int) -> None:
         if self._telemetry is None:
@@ -435,7 +463,9 @@ class _RuntimeLiteLLMBackend:
         choice = response.choices[0]
         message = choice.message
         usage = getattr(response, "usage", None)
-        tool_calls = [_coerce_tool_call(item) for item in (getattr(message, "tool_calls", None) or [])]
+        tool_calls = [
+            _coerce_tool_call(item) for item in (getattr(message, "tool_calls", None) or [])
+        ]
         return ProviderResponse(
             text=message.content or "",
             finish_reason=choice.finish_reason or "error",
@@ -464,8 +494,18 @@ def _normalize_finish_reason(value: object) -> FinishReason | None:
     if value is None:
         return None
     lowered = str(value).lower()
-    if lowered in {"stop", "length", "tool_calls", "content_filter", "error"}:
-        return cast(FinishReason, lowered)
+    # Explicit per-literal returns so the result is typed as FinishReason,
+    # not str; anything unrecognized collapses to "error".
+    if lowered == "stop":
+        return "stop"
+    if lowered == "length":
+        return "length"
+    if lowered == "tool_calls":
+        return "tool_calls"
+    if lowered == "content_filter":
+        return "content_filter"
+    if lowered == "error":
+        return "error"
     return "error"
 
 

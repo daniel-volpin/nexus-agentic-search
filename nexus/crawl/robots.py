@@ -1,11 +1,11 @@
-"""robots.txt evaluation (Spec 03 §Robots.txt handling).
+"""robots.txt evaluation.
 
 Fetches ``/robots.txt`` for a host (through the same caller-supplied,
 SSRF-guarded fetch function), parses it with the stdlib
 ``urllib.robotparser`` (no new dependency), and caches the parser per
 host for ``ttl_s``.
 
-Policy (Spec 03):
+Policy:
 - Disallowed path → caller returns ``blocked_by_robots``.
 - robots fetch failure → DEFAULT ALLOW (with a logged warning). Many
   sites have no robots.txt; failing closed would block the whole web.

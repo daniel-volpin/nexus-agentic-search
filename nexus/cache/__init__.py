@@ -1,4 +1,4 @@
-"""Cache layer (Spec 09).
+"""Cache layer.
 
 Per-namespace disk-backed caches with schema versioning and TTL.
 
@@ -26,6 +26,7 @@ from .types import (
     SEARCH_SEARXNG_VERSION,
     CacheDisabled,
     CacheError,
+    CacheLike,
 )
 
 __all__ = [
@@ -37,6 +38,7 @@ __all__ = [
     "SEARCH_SEARXNG_VERSION",
     "CacheDisabled",
     "CacheError",
+    "CacheLike",
     "DiskCacheBackend",
     "setup_cache",
     "shutdown_cache",

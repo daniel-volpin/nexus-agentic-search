@@ -1,4 +1,4 @@
-"""HTML → markdown extraction (Spec 03 §Content extraction).
+"""HTML → markdown extraction.
 
 A dependency-free extractor built on ``html.parser`` that drops the
 content that must never reach the LLM:
