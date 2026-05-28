@@ -1,8 +1,8 @@
-"""Structured logging (Spec 11).
+"""Structured logging.
 
 Logs are JSON-by-default, written to stdout. Every record carries the
 ``request_id`` (from :mod:`nexus.telemetry`) and passes through the
-secret-redaction filter (Spec 10).
+secret-redaction filter.
 
 Bootstrapping
 -------------

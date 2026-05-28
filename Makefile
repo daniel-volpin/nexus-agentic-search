@@ -22,7 +22,7 @@ format:  ## Apply ruff format + lint fixes.
 format-check:  ## Check formatting without modifying files.
 	uv run ruff format --check nexus tests
 
-typecheck:  ## Run mypy (advisory until baseline is clean).
+typecheck:  ## Run mypy (blocking in CI; nexus/ is clean).
 	uv run mypy nexus
 
 test: test-unit test-security  ## Run unit + security tests (default).

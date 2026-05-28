@@ -26,7 +26,10 @@ def rerank(
     scores = scorer.score([(query, text) for text in texts])
 
     ranked = sorted(
-        (RankedResult(result=item, score=score, rerank_rank=idx) for idx, (item, score) in enumerate(zip(bounded, scores, strict=False))),
+        (
+            RankedResult(result=item, score=score, rerank_rank=idx)
+            for idx, (item, score) in enumerate(zip(bounded, scores, strict=False))
+        ),
         key=lambda x: x.score,
         reverse=True,
     )

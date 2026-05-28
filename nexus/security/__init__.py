@@ -1,4 +1,4 @@
-"""Security cross-cutting module (Spec 10).
+"""Security cross-cutting module.
 
 Most security primitives live in their component owners:
 

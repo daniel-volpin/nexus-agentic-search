@@ -28,11 +28,10 @@ BLOCKED_V6_NETWORKS = [
 @dataclass(frozen=True)
 class PinnedTarget:
     """A validated connection target. The crawler connects to ``ip`` while
-    presenting ``host`` for SNI / cert validation / the Host header — this
-    is the connect-with-IP defense against DNS rebinding (Spec 10 §SSRF
-    guard): httpx cannot re-resolve the hostname to a different (private)
-    address between our check and the connect, because we hand it the
-    pinned IP directly.
+    presenting ``host`` for SNI / cert validation / the Host header — the
+    connect-with-IP defense against DNS rebinding: httpx cannot re-resolve
+    the hostname to a different (private) address between our check and the
+    connect, because we hand it the pinned IP directly.
     """
 
     ip: str

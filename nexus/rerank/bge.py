@@ -4,17 +4,19 @@ import math
 
 
 class BgeScorer:
-    """Placeholder deterministic scorer for Spec 02 scaffolding.
+    """Deterministic lexical scorer (query/candidate token overlap).
 
-    Notes:
-    - Runtime target is an open-weight cross-encoder backend.
-    - Default candidate model is `BAAI/bge-reranker-v2-m3` (multilingual, Apache-2.0).
-    - `model_id` is kept now so integration can swap in real inference without API churn.
+    A real, explainable default — not random — so ranking is stable
+    without a heavyweight model. The interface matches a cross-encoder
+    so a real one (e.g. ``BAAI/bge-reranker-v2-m3``, multilingual,
+    Apache-2.0) can be dropped in behind ``model_id`` without API churn.
     """
 
     DEFAULT_MODEL_ID = "BAAI/bge-reranker-v2-m3"
 
-    def __init__(self, model_path: str | None = None, device: str = "cpu", model_id: str | None = None) -> None:
+    def __init__(
+        self, model_path: str | None = None, device: str = "cpu", model_id: str | None = None
+    ) -> None:
         self.model_path = model_path
         self.device = device
         self.model_id = model_id or self.DEFAULT_MODEL_ID

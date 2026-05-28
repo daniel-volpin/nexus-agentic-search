@@ -1,4 +1,4 @@
-"""Process entrypoint (Spec 12 §Container image).
+"""Process entrypoint.
 
 Boot sequence (deliberate order):
 
@@ -14,7 +14,7 @@ Boot sequence (deliberate order):
 Each step has a single failure mode and a clear log line. The selftest
 is the last gate before the service accepts traffic.
 
-Search wiring (Spec 01): the orchestrator gets a real
+Search wiring: the orchestrator gets a real
 ``DefaultSearchClient`` — Brave primary with SearXNG (google +
 duckduckgo, breaker-guarded) fallback. With no Brave key the router
 uses SearXNG only; if neither is reachable a search raises
@@ -50,7 +50,7 @@ logger = logging.getLogger(__name__)
 
 
 def _build_search_client(config: Config) -> DefaultSearchClient:
-    """Brave-first router with SearXNG fallback (Spec 01).
+    """Brave-first router with SearXNG fallback.
 
     Both providers are real. If no Brave key is configured the router
     transparently uses SearXNG (google + duckduckgo, breaker-guarded).

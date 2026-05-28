@@ -1,4 +1,4 @@
-"""Async crawl client (Spec 03).
+"""Async crawl client.
 
 The system's primary network egress and primary attack surface. Every
 fetch:
@@ -74,8 +74,8 @@ class CrawlClient:
             # No silent downgrade: the caller asked for rendered DOM and
             # we cannot provide it yet. Surface it explicitly.
             raise NotImplementedError(
-                "render_js=True is not implemented; JS rendering (Crawl4AI/Playwright) "
-                "is a deferred Spec 03 path"
+                "render_js=True is not implemented; JS rendering "
+                "(Crawl4AI/Playwright) is not wired yet"
             )
 
         requested = req.url

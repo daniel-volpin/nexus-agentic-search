@@ -56,13 +56,10 @@ jobs:
         run: uv run pytest -q tests/unit tests/security --cov=nexus --cov-report=term-missing
 
   typecheck:
-    # Advisory: mypy is not strict yet across the full codebase. The job is
-    # allowed to fail; reviewers see drift but PRs are not blocked. Flipped
-    # to blocking once `make typecheck` is clean on main.
-    name: mypy (advisory)
+    # Blocking: nexus/ is mypy-clean. A new type error fails the PR.
+    name: mypy
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v3

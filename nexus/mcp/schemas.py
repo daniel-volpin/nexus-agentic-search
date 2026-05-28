@@ -39,7 +39,7 @@ def truncate_answer_payload(payload: dict, *, config: MCPConfig) -> dict:
 
 
 def validate_output(payload: dict[str, Any]) -> bool:
-    required = {
+    required: dict[str, type | tuple[type, ...]] = {
         "answer_text": str,
         "citations": list,
         "rejected_citations": list,

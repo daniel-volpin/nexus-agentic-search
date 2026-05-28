@@ -1,4 +1,4 @@
-"""Search routing (Spec 01 §Activation policy).
+"""Search routing.
 
 ``DefaultSearchClient`` is the single entry point the orchestrator
 depends on. Routing is deterministic and explicit — no silent
