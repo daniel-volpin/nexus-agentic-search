@@ -45,7 +45,7 @@ from nexus.mcp.server import MCPTransport, create_streamable_http_app
 from nexus.orchestrator.service import Orchestrator
 from nexus.search import BraveProvider, DefaultSearchClient, SearXNGProvider
 from nexus.security import run_selftest
-from nexus.telemetry import setup_telemetry
+from nexus.telemetry import PrometheusTelemetrySink, setup_telemetry
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +96,10 @@ async def amain() -> int:
 
     setup_cache(root=config.cache_root, total_size_gb=config.cache_total_size_gb)
 
-    llm_client = LiteLLMClient(config=config.llm)
+    # One sink for the whole process: forwards orchestrator + LLM metrics
+    # to the Prometheus instruments scraped on the metrics port.
+    telemetry_sink = PrometheusTelemetrySink()
+    llm_client = LiteLLMClient(config=config.llm, telemetry=telemetry_sink)
 
     selftest_report = await run_selftest(llm_client=llm_client)
     if selftest_report.critical_failures:
@@ -112,8 +115,8 @@ async def amain() -> int:
             extra={"failures": list(selftest_report.failures)},
         )
 
-    http_server, http_task = _start_http(config, llm_client)
-    mcp_task = _start_mcp(config, llm_client)
+    http_server, http_task = _start_http(config, llm_client, telemetry_sink)
+    mcp_task = _start_mcp(config, llm_client, telemetry_sink)
 
     logger.info(
         "service_ready",
@@ -144,21 +147,24 @@ async def amain() -> int:
 # ---------- transport bootstrap ----------
 
 
-def _build_orchestrator(config: Config, llm_client: LiteLLMClient) -> Orchestrator:
+def _build_orchestrator(
+    config: Config, llm_client: LiteLLMClient, telemetry_sink: PrometheusTelemetrySink
+) -> Orchestrator:
     """Wire the real search router + crawl client + LLM gateway, with the
     disk caches (populated by setup_cache) injected."""
     return Orchestrator(
         search_client=_build_search_client(config),
         crawl_client=CrawlClient(ssrf_guard=SSRFGuard(), cache=cache_ns.CRAWL_DOCUMENT),
         llm_client=llm_client,
+        telemetry=telemetry_sink,
     )
 
 
 def _start_http(
-    config: Config, llm_client: LiteLLMClient
+    config: Config, llm_client: LiteLLMClient, telemetry_sink: PrometheusTelemetrySink
 ) -> tuple[uvicorn.Server, asyncio.Task[None]]:
     app = create_http_app(
-        orchestrator=_build_orchestrator(config, llm_client),
+        orchestrator=_build_orchestrator(config, llm_client, telemetry_sink),
         llm_config_roles=dict(config.llm.roles),
         config=config.http,
     )
@@ -167,13 +173,15 @@ def _start_http(
     return server, task
 
 
-def _start_mcp(config: Config, llm_client: LiteLLMClient) -> asyncio.Task[None]:
+def _start_mcp(
+    config: Config, llm_client: LiteLLMClient, telemetry_sink: PrometheusTelemetrySink
+) -> asyncio.Task[None]:
     """MCP server. Runs on its own uvicorn instance via the
     streamable-http app FastMCP provides. Falls back to a no-op task
     in environments where fastmcp's HTTP server is not importable
     (so tests can run without it)."""
     transport = MCPTransport(
-        orchestrator=_build_orchestrator(config, llm_client),
+        orchestrator=_build_orchestrator(config, llm_client, telemetry_sink),
         llm_config_roles=dict(config.llm.roles),
         config=config.mcp,
     )
