@@ -1,4 +1,7 @@
+from .brave import BraveProvider
 from .canonical import canonicalize
+from .client import DefaultSearchClient, SearchClient
+from .searxng import CircuitBreaker, SearXNGProvider
 from .types import (
     RankedResult,
     Result,
@@ -9,8 +12,13 @@ from .types import (
 )
 
 __all__ = [
+    "BraveProvider",
+    "CircuitBreaker",
+    "DefaultSearchClient",
     "RankedResult",
     "Result",
+    "SearXNGProvider",
+    "SearchClient",
     "SearchRequest",
     "SearchResponse",
     "SearchUnavailable",

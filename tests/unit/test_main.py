@@ -1,9 +1,8 @@
 """Tests for the ``nexus.main`` entrypoint sequencing (Spec 12).
 
 We do NOT spin up real uvicorn servers in unit tests — that's
-integration territory. These tests verify the assembly order,
-the selftest fail-closed path, and the placeholder search client's
-contract.
+integration territory. These tests verify the assembly order, the
+selftest fail-closed path, and the search-client wiring.
 """
 
 from __future__ import annotations
@@ -13,31 +12,38 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from nexus.main import _PlaceholderSearchClient, amain
-from nexus.search import SearchRequest
+from nexus.config import load_config
+from nexus.main import _build_search_client, amain
+from nexus.search import DefaultSearchClient
 
-# ---------- placeholder search client ----------
-
-
-async def test_placeholder_search_returns_empty_response() -> None:
-    client = _PlaceholderSearchClient()
-    req = SearchRequest(query="hello world", max_results=5)
-    response = await client.search(req)
-    assert response.results == []
-    assert response.provider == "placeholder"
-    assert response.query_sent == "hello world"
+# ---------- search client wiring ----------
 
 
-async def test_placeholder_search_emits_critical_log_on_construction(
-    caplog: pytest.LogCaptureFixture,
+def test_build_search_client_returns_default_router(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("NEXUS_HTTP_TOKEN", "t" * 32)
+    monkeypatch.setenv("NEXUS_MCP_TOKEN", "m" * 32)
+    monkeypatch.setenv("CACHE_ROOT", str(tmp_path))
+    monkeypatch.setenv("BRAVE_API_KEY", "brave-key-123")
+    config = load_config()
+    client = _build_search_client(config)
+    assert isinstance(client, DefaultSearchClient)
+
+
+def test_build_search_client_without_brave_key_warns_searxng_only(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     import logging
 
-    with caplog.at_level(logging.CRITICAL):
-        _PlaceholderSearchClient()
-    crit = [r for r in caplog.records if r.levelno >= logging.CRITICAL]
-    assert crit, "placeholder must emit CRITICAL at construction"
-    assert "placeholder" in crit[0].getMessage().lower()
+    monkeypatch.setenv("NEXUS_HTTP_TOKEN", "t" * 32)
+    monkeypatch.setenv("NEXUS_MCP_TOKEN", "m" * 32)
+    monkeypatch.setenv("CACHE_ROOT", str(tmp_path))
+    monkeypatch.delenv("BRAVE_API_KEY", raising=False)
+    config = load_config()
+    with caplog.at_level(logging.WARNING):
+        _build_search_client(config)
+    assert any("searxng_only" in r.getMessage() for r in caplog.records)
 
 
 # ---------- amain: config failure path ----------
