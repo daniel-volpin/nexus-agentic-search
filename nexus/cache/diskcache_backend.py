@@ -66,8 +66,15 @@ class DiskCacheBackend:
         try:
             path.mkdir(parents=True, exist_ok=True)
             os.chmod(path, 0o700)
+            # JSONDisk (not the default pickle Disk) closes CVE-2025-69872:
+            # diskcache's pickle serializer lets anyone with write access to
+            # the cache dir achieve RCE on read. We only ever store
+            # JSON-serializable envelopes, so JSON serialization is a clean
+            # drop-in with no pickle deserialization anywhere.
             cache = diskcache.Cache(
                 str(path),
+                disk=diskcache.JSONDisk,
+                disk_compress_level=0,
                 size_limit=size_limit_bytes,
                 cull_limit=_DEFAULT_CULL_LIMIT,
             )

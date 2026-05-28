@@ -36,6 +36,13 @@ def backend(cache_root: Path) -> DiskCacheBackend:
 # ---------- basic CRUD ----------
 
 
+def test_backend_uses_json_serializer_not_pickle(backend: DiskCacheBackend) -> None:
+    """CVE-2025-69872: diskcache's default pickle Disk allows RCE when an
+    app reads a cache file an attacker wrote. We must use JSONDisk so the
+    cache never unpickles anything."""
+    assert isinstance(backend._cache.disk, diskcache.JSONDisk)
+
+
 async def test_get_returns_none_on_miss(backend: DiskCacheBackend) -> None:
     assert await backend.get("missing") is None
 
@@ -46,7 +53,7 @@ async def test_set_then_get_roundtrip(backend: DiskCacheBackend) -> None:
 
 
 async def test_set_handles_pydantic_compatible_values(backend: DiskCacheBackend) -> None:
-    """Values may be any picklable structure: dicts, lists, primitives."""
+    """Values may be any JSON-serializable structure: dicts, lists, primitives."""
     payload = {"a": [1, 2, 3], "b": {"nested": True}, "c": None}
     await backend.set("k", payload)
     assert await backend.get("k") == payload
