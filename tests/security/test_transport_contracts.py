@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
 import socket
 import threading
 import time
+from dataclasses import dataclass
 
-from fastapi.testclient import TestClient
 import httpx
 import uvicorn
+from fastapi.testclient import TestClient
 
 from nexus.http import HTTPConfig, create_app
 from nexus.orchestrator import AnswerEvent
