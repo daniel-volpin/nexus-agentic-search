@@ -32,6 +32,7 @@ from collections.abc import Awaitable
 
 import uvicorn
 
+from nexus.cache import namespaces as cache_ns
 from nexus.cache import setup_cache, shutdown_cache
 from nexus.config import Config, load_config
 from nexus.crawl import CrawlClient
@@ -66,7 +67,10 @@ def _build_search_client(config: Config) -> DefaultSearchClient:
             "brave_not_configured_using_searxng_only",
             extra={"engines": list(config.searxng_engines)},
         )
-    return DefaultSearchClient(brave=brave, searxng=searxng)
+    # cache_ns.SEARCH_BRAVE is populated by setup_cache() (called before
+    # this runs); it's the shared search-response cache (provider-agnostic
+    # merged responses). None when the cache is disabled.
+    return DefaultSearchClient(brave=brave, searxng=searxng, cache=cache_ns.SEARCH_BRAVE)
 
 
 async def amain() -> int:
@@ -140,10 +144,11 @@ async def amain() -> int:
 
 
 def _build_orchestrator(config: Config, llm_client: LiteLLMClient) -> Orchestrator:
-    """Wire the real search router + crawl client + LLM gateway."""
+    """Wire the real search router + crawl client + LLM gateway, with the
+    disk caches (populated by setup_cache) injected."""
     return Orchestrator(
         search_client=_build_search_client(config),
-        crawl_client=CrawlClient(ssrf_guard=SSRFGuard()),
+        crawl_client=CrawlClient(ssrf_guard=SSRFGuard(), cache=cache_ns.CRAWL_DOCUMENT),
         llm_client=llm_client,
     )
 

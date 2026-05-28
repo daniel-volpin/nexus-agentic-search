@@ -26,6 +26,7 @@ from .types import (
     SEARCH_SEARXNG_VERSION,
     CacheDisabled,
     CacheError,
+    CacheLike,
 )
 
 __all__ = [
@@ -37,6 +38,7 @@ __all__ = [
     "SEARCH_SEARXNG_VERSION",
     "CacheDisabled",
     "CacheError",
+    "CacheLike",
     "DiskCacheBackend",
     "setup_cache",
     "shutdown_cache",

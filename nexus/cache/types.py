@@ -2,7 +2,20 @@
 
 from __future__ import annotations
 
-from typing import Final
+from typing import Any, Final, Protocol
+
+
+class CacheLike(Protocol):
+    """Minimal async cache surface consumed by components (search, crawl).
+
+    ``DiskCacheBackend`` satisfies this. Components depend on the
+    protocol, not the concrete backend, and accept ``None`` to mean
+    "no cache" — best-effort, never a hard dependency.
+    """
+
+    async def get(self, key: str) -> Any | None: ...
+
+    async def set(self, key: str, value: Any, *, ttl_s: int | None = None) -> None: ...
 
 
 class CacheError(Exception):
