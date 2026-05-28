@@ -27,6 +27,7 @@ For long-term cloud support, defaults prioritize `vertex_ai/gemini-2.5-flash-lit
 
 For private SearXNG deployments, set `SEARXNG_BASE_URL` to your HTTPS endpoint and set `SEARXNG_API_KEY`; the client sends it as `X-Searx-Key`.
 For the Cloud Run + private SearXNG production pattern, see `docs/deploy/cloud-run-private-searxng.md`.
+For Gitea-primary + GitHub-backup mirroring, see `docs/deploy/gitea-github-mirror.md`.
 For reusable Gitea operational workflow, use Codex skill: `~/.codex/skills/gitea-ops-release/SKILL.md`.
 
 ## Vertex AI setup (recommended)
