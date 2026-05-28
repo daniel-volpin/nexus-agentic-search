@@ -29,6 +29,11 @@ from datetime import UTC, datetime
 
 import httpx
 
+from nexus.cache import CacheLike
+from nexus.cache.keys import crawl_doc_key
+from nexus.search.canonical import canonicalize
+from nexus.telemetry import CACHE_HIT_TOTAL, CACHE_MISS_TOTAL
+
 from .envelope import wrap_untrusted
 from .extract import extract_markdown
 from .rate_limit import PerDomainRateLimiter
@@ -37,6 +42,8 @@ from .ssrf import SSRFGuard
 from .types import CrawlRequest, CrawlStatus, Document
 
 logger = logging.getLogger(__name__)
+
+_CACHE_NAMESPACE = "crawl.document"
 
 _ALLOWED_CONTENT_TYPES = {"text/html", "text/markdown", "application/xhtml+xml", "text/plain"}
 _MAX_REDIRECTS = 5
@@ -52,12 +59,14 @@ class CrawlClient:
         user_agent: str = _DEFAULT_UA,
         rate_limiter: PerDomainRateLimiter | None = None,
         robots: RobotsCache | None = None,
+        cache: CacheLike | None = None,
         client: httpx.AsyncClient | None = None,
     ) -> None:
         self._ssrf = ssrf_guard or SSRFGuard()
         self._user_agent = user_agent
         self._rate = rate_limiter or PerDomainRateLimiter()
         self._robots = robots or RobotsCache(user_agent=user_agent)
+        self._cache = cache
         self._client = client  # injectable for tests
 
     async def fetch(self, req: CrawlRequest) -> Document:
@@ -72,6 +81,21 @@ class CrawlClient:
         requested = req.url
         now = datetime.now(UTC)
 
+        # Document cache: keyed by canonical URL + render_js + max_bytes.
+        # Only successful (status="ok") documents are cached; failures are
+        # transient and must be re-attempted.
+        cache_key = crawl_doc_key(
+            canonical_url=canonicalize(req.url) or req.url,
+            render_js=req.render_js,
+            max_bytes=req.max_bytes,
+        )
+        if self._cache is not None:
+            cached = await self._cache.get(cache_key)
+            if cached is not None:
+                CACHE_HIT_TOTAL.labels(namespace=_CACHE_NAMESPACE).inc()
+                return Document.model_validate(cached)
+            CACHE_MISS_TOTAL.labels(namespace=_CACHE_NAMESPACE).inc()
+
         # Rate limit (per registrable domain).
         if not await self._rate.try_acquire(req.url):
             return self._empty(requested, now, "rate_limited", "", None, [])
@@ -83,7 +107,10 @@ class CrawlClient:
         owns_client = self._client is None
         client = self._client or httpx.AsyncClient(timeout=req.timeout_s, follow_redirects=False)
         try:
-            return await self._fetch_following_redirects(req, requested, now, client)
+            document = await self._fetch_following_redirects(req, requested, now, client)
+            if self._cache is not None and document.status == "ok":
+                await self._cache.set(cache_key, document.model_dump(mode="json"))
+            return document
         finally:
             if owns_client:
                 await client.aclose()
