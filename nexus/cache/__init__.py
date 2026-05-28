@@ -1,4 +1,4 @@
-"""Cache layer (Spec 09).
+"""Cache layer.
 
 Per-namespace disk-backed caches with schema versioning and TTL.
 

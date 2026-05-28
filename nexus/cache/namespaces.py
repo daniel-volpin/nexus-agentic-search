@@ -1,9 +1,8 @@
 """Module-level namespace handles populated by :func:`setup_cache`.
 
-Spec 09 §Namespaces. Consumers import the constants and call ``.get`` /
-``.set`` on them. Before :func:`setup_cache` runs the handles are ``None``
-and callers must treat that as "cache disabled" — guard with a truthiness
-check.
+Consumers import the constants and call ``.get`` / ``.set`` on them.
+Before :func:`setup_cache` runs the handles are ``None`` and callers
+must treat that as "cache disabled" — guard with a truthiness check.
 
 The single-process module-global pattern is acceptable here because the
 service runs as one process per container and cache lifetime matches
@@ -34,7 +33,7 @@ CRAWL_DOCUMENT: DiskCacheBackend | None = None
 CRAWL_ROBOTS: DiskCacheBackend | None = None
 COST_DAILY: DiskCacheBackend | None = None
 
-# TTL defaults per namespace (Spec 09 §Namespaces table).
+# TTL defaults per namespace.
 _TTL_SEARCH_BRAVE_S = 6 * 3600
 _TTL_SEARCH_SEARXNG_S = 3 * 3600
 _TTL_RERANK_BGE_S = 24 * 3600

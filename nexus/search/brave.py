@@ -1,10 +1,10 @@
-"""Brave Search API provider (Spec 01).
+"""Brave Search API provider.
 
 Contractual web search via the Brave Search API. No HTML scraping.
 Returns results normalized into the provider-neutral ``Result`` schema
 with canonical, deduped URLs.
 
-Failure policy (Spec 01 §Failure modes): 429 → exponential backoff with
+Failure policy: 429 → exponential backoff with
 jitter (max 3); 5xx → one retry; timeout → ``SearchUnavailable``. A
 missing API key makes the provider ``enabled = False`` so the router
 can skip it cleanly rather than burning a 401 round-trip.

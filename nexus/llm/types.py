@@ -4,6 +4,9 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Literal, Protocol, TypedDict
 
+# The finish reasons a provider can report, normalized to a closed set.
+FinishReason = Literal["stop", "length", "tool_calls", "content_filter", "error"]
+
 
 class Message(TypedDict):
     role: Literal["system", "user", "assistant", "tool"]
@@ -25,7 +28,7 @@ class ToolCall(TypedDict):
 @dataclass(frozen=True)
 class CompletionResult:
     text: str
-    finish_reason: Literal["stop", "length", "tool_calls", "content_filter", "error"]
+    finish_reason: FinishReason
     input_tokens: int
     output_tokens: int
     cost_usd: float
@@ -40,7 +43,7 @@ class CompletionResult:
 @dataclass(frozen=True)
 class StreamChunk:
     text_delta: str
-    finish_reason: Literal["stop", "length", "tool_calls", "content_filter", "error"] | None
+    finish_reason: FinishReason | None
     input_tokens: int
     output_tokens: int
     cost_usd: float

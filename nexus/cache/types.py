@@ -1,4 +1,4 @@
-"""Cache layer types and exceptions (Spec 09)."""
+"""Cache layer types and exceptions."""
 
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ class CacheDisabled(CacheError):
 
 # Per-namespace schema versions. Bumping a version invalidates all existing
 # entries in that namespace on read (mismatch ⇒ miss). Migrations are NOT
-# performed (Spec 09 §Failure modes).
+# performed.
 SEARCH_BRAVE_VERSION: Final[int] = 1
 SEARCH_SEARXNG_VERSION: Final[int] = 1
 RERANK_BGE_VERSION: Final[int] = 1

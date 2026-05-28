@@ -1,8 +1,21 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from time import monotonic
+from typing import Protocol
 
 from .types import MCPConfig, StatusState
+
+
+class RoleConfigView(Protocol):
+    """Structural view of an LLM role config — just the fields the
+    ``nexus://config/roles`` resource exposes. Decouples the MCP layer
+    from the concrete LLM config class."""
+
+    primary: str
+    fallback: list[str]
+    max_input_tokens: int
+    max_output_tokens: int
 
 
 def read_status(*, config: MCPConfig, state: StatusState) -> dict:
@@ -16,7 +29,7 @@ def read_status(*, config: MCPConfig, state: StatusState) -> dict:
     return payload
 
 
-def read_roles(*, roles: dict[str, object]) -> dict:
+def read_roles(*, roles: Mapping[str, RoleConfigView]) -> dict:
     out: dict[str, dict] = {}
     for name, role in roles.items():
         out[name] = {

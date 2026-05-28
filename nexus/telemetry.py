@@ -1,4 +1,4 @@
-"""Tracing + metrics primitives (Spec 11).
+"""Tracing + metrics primitives.
 
 OpenTelemetry is used for tracing; ``prometheus_client`` is used for
 metrics exposed over an HTTP scrape endpoint. The two coexist cleanly
@@ -14,15 +14,15 @@ Until :func:`setup_telemetry` runs, the SDK uses its default
 no-op providers and span calls are cheap. Modules can safely call
 :func:`get_tracer` at import time.
 
-Spec 11 §Mandatory span attributes: every span carries ``service.name``,
-``service.version`` (from the SDK Resource) and ``request_id`` (added
-by :func:`bind_request_id` via :data:`request_id_var`).
+Every span carries ``service.name``, ``service.version`` (from the SDK
+Resource) and ``request_id`` (added by :func:`bind_request_id` via
+:data:`request_id_var`).
 
 Metrics
 -------
-Standard counters/histograms/gauges from Spec 11 §Metrics live as
-module-level instruments, so any component can ``from nexus.telemetry
-import ORCHESTRATOR_LATENCY_MS`` and observe without further setup.
+Standard counters/histograms/gauges live as module-level instruments,
+so any component can ``from nexus.telemetry import ORCHESTRATOR_LATENCY_MS``
+and observe without further setup.
 """
 
 from __future__ import annotations
@@ -86,11 +86,11 @@ def get_tracer(name: str) -> trace.Tracer:
     return trace.get_tracer(name)
 
 
-# ---------- metrics: Spec 11 standard instruments ----------
+# ---------- standard metric instruments ----------
 #
 # Defined once at module import. Callers do not instantiate; they import
-# and use. Buckets follow the latency profile in Spec 11's open question
-# (revisit after measurement).
+# and use. Bucket boundaries are a starting profile — revisit after
+# measuring real traffic.
 
 _LATENCY_BUCKETS_MS: Final[tuple[float, ...]] = (
     1,

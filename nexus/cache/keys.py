@@ -1,4 +1,4 @@
-"""Canonical cache key builders (Spec 09 §Invariants).
+"""Canonical cache key builders.
 
 Every cache key is a hex digest (or hex+small int / ISO-date+role for
 ``cost_daily``) — NEVER raw query / URL / token plaintext. This keeps
