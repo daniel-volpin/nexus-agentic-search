@@ -60,6 +60,7 @@ def _build_search_client(config: Config) -> DefaultSearchClient:
     searxng = SearXNGProvider(
         base_url=config.searxng_base_url,
         engines=config.searxng_engines,
+        api_key=config.searxng_api_key,
     )
     if not brave.enabled:
         logger.warning(

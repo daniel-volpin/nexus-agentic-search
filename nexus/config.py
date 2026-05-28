@@ -44,7 +44,8 @@ class _Env(BaseSettings):
 
     # SearXNG
     searxng_base_url: str = "http://searxng:8080"
-    searxng_engines: str = "google,duckduckgo"
+    searxng_engines: str = "duckduckgo"
+    searxng_api_key: SecretStr = SecretStr("")
 
     # Bearer tokens (mandatory; service refuses to start without)
     nexus_http_token: SecretStr = SecretStr("")
@@ -118,6 +119,7 @@ class Config:
     enable_query_expansion: bool
     searxng_engines: tuple[str, ...] = field(default_factory=tuple)
     searxng_base_url: str = ""
+    searxng_api_key: str = ""
 
     @property
     def llm_role_views(self) -> dict[str, object]:
@@ -166,6 +168,7 @@ def load_config(*, require_tokens: bool = True) -> Config:
         enable_query_expansion=env.enable_query_expansion,
         searxng_engines=tuple(e.strip() for e in env.searxng_engines.split(",")),
         searxng_base_url=env.searxng_base_url,
+        searxng_api_key=env.searxng_api_key.get_secret_value(),
     )
 
 

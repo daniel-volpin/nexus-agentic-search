@@ -57,6 +57,10 @@ def _validate_model_id(value: str) -> None:
     provider, separator, model = value.partition("/")
     if not provider or not separator or not model:
         raise ValueError(f"model id must include a provider prefix: {value}")
+    if provider == "lmstudio" and "-" in model and any(char.isdigit() for char in model):
+        return
+    if provider == "vertex_ai":
+        return
     if "-" not in model:
         raise ValueError(f"model id must be pinned to a dated or versioned identifier: {value}")
     tail = model.rsplit("-", 1)[-1]

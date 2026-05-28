@@ -101,6 +101,7 @@ class SearXNGProvider:
         base_url: str,
         *,
         engines: tuple[str, ...] = _ALLOWED_ENGINES,
+        api_key: str = "",
         qps_per_engine: dict[str, float] | None = None,
         timeout_s: float = _TIMEOUT_S,
         breaker: CircuitBreaker | None = None,
@@ -111,6 +112,7 @@ class SearXNGProvider:
             raise ValueError(f"engines must be a subset of {_ALLOWED_ENGINES}; got extra {bad}")
         self._base_url = base_url.rstrip("/")
         self._engines = engines
+        self._api_key = api_key
         self._timeout_s = timeout_s
         self._breaker = breaker or CircuitBreaker()
         self._client = client
@@ -158,8 +160,11 @@ class SearXNGProvider:
     async def _request(self, params: dict[str, str]) -> dict:
         owns_client = self._client is None
         client = self._client or httpx.AsyncClient(timeout=self._timeout_s)
+        headers: dict[str, str] = {}
+        if self._api_key:
+            headers["X-Searx-Key"] = self._api_key
         try:
-            resp = await client.get(f"{self._base_url}/search", params=params)
+            resp = await client.get(f"{self._base_url}/search", params=params, headers=headers)
         except (httpx.TimeoutException, httpx.TransportError) as exc:
             raise SearchUnavailable(f"searxng transport error: {exc!s}") from exc
         finally:
