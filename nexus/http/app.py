@@ -52,17 +52,30 @@ def create_app(*, orchestrator, llm_config_roles: dict[str, object], config: HTT
             raise HTTPException(status_code=429, detail={"error": "rate_limited", "retry_after_s": 60})
         return token
 
-    async def _run_orchestrator(payload: dict):
+    def _parse_payload(request: Request) -> dict:
         try:
-            request = SearchRequest.model_validate(payload)
+            return json.loads(request.state.cached_body.decode("utf-8") or "{}")
+        except json.JSONDecodeError as exc:
+            raise HTTPException(status_code=422, detail={"error": "invalid_input", "field": "body"}) from exc
+
+    def _validate_request(payload: dict) -> SearchRequest:
+        try:
+            return SearchRequest.model_validate(payload)
         except PydanticValidationError as exc:
             field = ".".join(str(part) for part in exc.errors()[0]["loc"])
             raise HTTPException(status_code=422, detail={"error": "invalid_input", "field": field})
 
+    async def _run_orchestrator(payload: dict):
+        request = _validate_request(payload)
         events = []
         async for event in orchestrator.search(request):
             events.append(event)
         return events
+
+    async def _stream_orchestrator(payload: dict):
+        request = _validate_request(payload)
+        async for event in orchestrator.search(request):
+            yield event
 
     @app.post("/v1/search")
     async def search(request: Request):
@@ -70,7 +83,7 @@ def create_app(*, orchestrator, llm_config_roles: dict[str, object], config: HTT
         if not app.state.rate_limiter.acquire_concurrency(token=token, limit=config.max_concurrent_per_token):
             raise HTTPException(status_code=429, detail={"error": "rate_limited", "retry_after_s": 60})
         try:
-            payload = json.loads(request.state.cached_body.decode("utf-8") or "{}")
+            payload = _parse_payload(request)
             events = await _run_orchestrator(payload)
             terminal = events[-1]
             if terminal.stage == "answer":
@@ -90,12 +103,13 @@ def create_app(*, orchestrator, llm_config_roles: dict[str, object], config: HTT
         token = _authorize(request)
         if not app.state.rate_limiter.acquire_concurrency(token=token, limit=config.max_concurrent_per_token):
             raise HTTPException(status_code=429, detail={"error": "rate_limited", "retry_after_s": 60})
-        payload = json.loads(request.state.cached_body.decode("utf-8") or "{}")
+        payload = _parse_payload(request)
 
         async def generate():
+            idx = 0
             try:
-                events = await _run_orchestrator(payload)
-                for idx, event in enumerate(events, start=1):
+                async for event in _stream_orchestrator(payload):
+                    idx += 1
                     yield f"event: {event.stage}\nid: {idx}\ndata: {json.dumps(event.payload, default=str)}\n\n"
             finally:
                 app.state.rate_limiter.release_concurrency(token=token)

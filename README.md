@@ -9,6 +9,14 @@ uv sync --dev
 uv run pytest -q
 ```
 
+## Run locally
+
+```bash
+export NEXUS_HTTP_TOKEN=secret
+export NEXUS_MCP_TOKEN=secret
+uv run python -m nexus.main
+```
+
 ## Common commands
 
 - Run search + rerank unit tests:

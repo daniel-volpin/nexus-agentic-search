@@ -7,6 +7,7 @@ import threading
 import time
 
 from fastmcp import Client
+from fastmcp.exceptions import ToolError
 import pytest
 from starlette.testclient import TestClient
 import uvicorn
@@ -284,3 +285,42 @@ def test_end_to_end_mcp_tool_call_over_streamable_http() -> None:
     assert tool_names == ["agentic_search"]
     assert result.structured_content["answer_text"] == "A" * 20
     assert len(progress) >= 2
+
+
+def test_end_to_end_mcp_tool_error_is_marked_as_error() -> None:
+    orchestrator = FakeOrchestrator(
+        [
+            AnswerEvent(stage="accepted", payload={"request_id": "1", "normalized_query": "python"}),
+            AnswerEvent(stage="error", payload={"reason": "llm_unavailable", "retriable": True, "detail": "provider down"}),
+        ]
+    )
+    transport = MCPTransport(
+        orchestrator=orchestrator,
+        llm_config_roles={"synthesis": FakeRoleConfig("openai/gpt-4o-2024-11-20", [], 32000, 2000)},
+        config=MCPConfig(token="secret"),
+    )
+    app = create_streamable_http_app(transport=transport)
+
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    port = sock.getsockname()[1]
+    sock.close()
+
+    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="error"))
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    for _ in range(50):
+        if server.started:
+            break
+        time.sleep(0.1)
+
+    async def run_client():
+        async with Client(f"http://127.0.0.1:{port}/mcp", auth="secret") as client:
+            return await client.call_tool("agentic_search", {"query": "python"})
+
+    try:
+        with pytest.raises(ToolError, match='\\{"error":"llm_unavailable","retriable":true\\}'):
+            asyncio.run(run_client())
+    finally:
+        server.should_exit = True
+        thread.join(timeout=5)

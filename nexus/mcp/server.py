@@ -69,6 +69,7 @@ class MCPTransport:
 def create_streamable_http_app(*, transport: MCPTransport):
     try:
         from fastmcp import Context, FastMCP
+        from fastmcp.exceptions import ToolError
         from fastmcp.server.http import create_streamable_http_app as create_http_app
     except ImportError as exc:  # pragma: no cover
         raise RuntimeError("fastmcp is required to build the MCP server app") from exc
@@ -79,7 +80,7 @@ def create_streamable_http_app(*, transport: MCPTransport):
 
     @mcp.tool(name="agentic_search", description="Run an agentic web search and return a citation-grounded answer.")
     async def agentic_search(query: str, freshness: str = "any", max_results: int = 20, lang: str | None = None, country: str | None = None, ctx: Context | None = None):
-        return await transport.handle_call(
+        result = await transport.handle_call(
             {
                 "query": query,
                 "freshness": freshness,
@@ -89,6 +90,9 @@ def create_streamable_http_app(*, transport: MCPTransport):
             },
             ctx=ctx,
         )
+        if "error" in result:
+            raise ToolError(json.dumps(result, separators=(",", ":")))
+        return result
     agentic_search.output_schema = {
         "type": "object",
         "required": ["answer_text", "citations", "rejected_citations", "documents", "cost_usd", "tokens_in", "tokens_out", "latency_ms", "degraded", "ungrounded"],
