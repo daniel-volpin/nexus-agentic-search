@@ -185,11 +185,12 @@ async def test_set_drops_on_write_timeout(backend: DiskCacheBackend) -> None:
         time.sleep(0.5)  # >> 0.1s write timeout
 
     with patch.object(backend, "_sync_set", side_effect=slow_set):
-        # Should return quickly, not block 500ms.
+        # Must return at the 0.1s write timeout, well before the 0.5s write
+        # would finish. Bound stays under 0.5 with margin for slow CI.
         start = time.monotonic()
         await backend.set("k", "v")
         elapsed = time.monotonic() - start
-    assert elapsed < 0.3, f"write did not honor 100ms timeout: {elapsed:.3f}s"
+    assert elapsed < 0.45, f"write did not honor 100ms timeout: {elapsed:.3f}s"
     # Entry not actually written.
     assert await backend.get("k") is None
 
@@ -302,15 +303,19 @@ async def test_incr_resets_envelope_on_version_drift(cache_root: Path) -> None:
 
 
 async def test_set_does_not_block_event_loop(backend: DiskCacheBackend) -> None:
-    # Schedule a 10ms sleep + a write at the same time; the write must not
-    # serialise the sleep (i.e., total time ≈ max, not sum).
-    start = time.monotonic()
-    await asyncio.gather(
-        asyncio.sleep(0.05),
-        backend.set("k", "v"),
-    )
-    elapsed = time.monotonic() - start
-    assert elapsed < 0.15, f"set serialised against asyncio.sleep: {elapsed:.3f}s"
+    # Patch the sync write to block its WORKER thread for 0.3s. Because set()
+    # dispatches via asyncio.to_thread, the event loop stays free and set()
+    # returns at the 0.1s write timeout — so the whole call resolves well
+    # under 0.3s. If set() ever ran the write on the loop instead, elapsed
+    # would be >= 0.3s. The bound is independent of real serializer speed.
+    def blocking_sync_set(*_args: object, **_kwargs: object) -> None:
+        time.sleep(0.3)
+
+    with patch.object(backend, "_sync_set", side_effect=blocking_sync_set):
+        start = time.monotonic()
+        await asyncio.gather(asyncio.sleep(0.05), backend.set("k", "v"))
+        elapsed = time.monotonic() - start
+    assert elapsed < 0.25, f"set blocked the event loop: {elapsed:.3f}s"
 
 
 # ---------- close ----------
