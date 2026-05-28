@@ -24,6 +24,7 @@ The shipped LLM defaults are `LM Studio first, cloud fallback`. If your loaded l
 For long-term cloud support, defaults prioritize `vertex_ai/gemini-2.5-flash-lite`, with `openai/gpt-4o-mini-2024-07-18` as cheap fallback.
 
 For private SearXNG deployments, set `SEARXNG_BASE_URL` to your HTTPS endpoint and set `SEARXNG_API_KEY`; the client sends it as `X-Searx-Key`.
+For the Cloud Run + private SearXNG production pattern, see `docs/deploy/cloud-run-private-searxng.md`.
 
 ## Vertex AI setup (recommended)
 

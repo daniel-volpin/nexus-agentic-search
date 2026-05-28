@@ -27,6 +27,7 @@ coverage.xml
 # Secrets — NEVER commit
 secrets/*.env
 secrets/*.key
+secrets/*.json
 *.pem
 
 # Editor / OS
