@@ -1,0 +1,30 @@
+# Golden-quality query set (Spec 13 §Golden suite).
+#
+# Each entry asserts citation behavior on a real end-to-end run against
+# the live service (real search + crawl + LLM). The suite is gated by
+# GOLDEN_LIVE=1 and requires API keys + a running service; it does NOT
+# run in the default `make test`.
+#
+# This is the STARTER set. Grow to ~20–50 once Spec 01/02/03 component
+# hardening lands and the live path actually returns results.
+
+- query: "What is the latest stable version of PostgreSQL?"
+  freshness: month
+  must_cite_any_of:
+    - postgresql.org
+  min_citations: 1
+  must_not_say:
+    - "I could not find a source"
+
+- query: "What license is the Linux kernel released under?"
+  must_cite_any_of:
+    - kernel.org
+    - gnu.org
+  min_citations: 1
+
+- query: "What does the HTTP 429 status code mean?"
+  must_cite_any_of:
+    - developer.mozilla.org
+    - rfc-editor.org
+    - ietf.org
+  min_citations: 1
