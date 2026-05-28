@@ -62,6 +62,8 @@ Required metrics (consolidated from component specs):
 | `orchestrator_requests_total` | counter | `final_stage` |
 | `orchestrator_latency_ms` | histogram | — |
 | `orchestrator_ungrounded_total` | counter | — |
+| `orchestrator_pages_ok` | histogram | — |
+| `orchestrator_pages_failed` | histogram | — |
 | `search_latency_ms` | histogram | `provider` |
 | `search_errors_total` | counter | `provider`, `reason` |
 | `search_provider_used_total` | counter | `provider` (`brave`/`searxng`) |
@@ -78,6 +80,7 @@ Required metrics (consolidated from component specs):
 | `llm_cost_usd_total` | counter | `role` |
 | `llm_latency_ms` | histogram | `role` |
 | `llm_budget_remaining_usd` | gauge | `role` |
+| `llm_errors_total` | counter | `role`, `reason` |
 | `citations_valid_total` | counter | — |
 | `citations_rejected_total` | counter | `reason` |
 | `citations_envelope_violations_total` | counter | — |
