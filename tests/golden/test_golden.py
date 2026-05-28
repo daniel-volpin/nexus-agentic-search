@@ -117,8 +117,13 @@ def _evaluate_query(query: dict[str, Any], payload: dict[str, Any]) -> dict[str,
 
     allowed_domains = [str(item).lower() for item in query.get("must_cite_any_of", [])]
     if allowed_domains:
-        citation_urls = [str(item.get("url", "")).lower() for item in citations if isinstance(item, dict)]
-        if not any(any(domain in urlparse(url).netloc or domain in url for domain in allowed_domains) for url in citation_urls):
+        citation_urls = [
+            str(item.get("url", "")).lower() for item in citations if isinstance(item, dict)
+        ]
+        if not any(
+            any(domain in urlparse(url).netloc or domain in url for domain in allowed_domains)
+            for url in citation_urls
+        ):
             reasons.append("must_cite_any_of: no citation matched allowed domains")
 
     forbidden_strings = [str(item) for item in query.get("must_not_say", [])]
@@ -165,7 +170,9 @@ def test_golden_regression_suite() -> None:
         results.append(_evaluate_query(query, payload))
 
     if infrastructure_failures:
-        pytest.skip("infrastructure failure during golden run: " + "; ".join(infrastructure_failures))
+        pytest.skip(
+            "infrastructure failure during golden run: " + "; ".join(infrastructure_failures)
+        )
 
     assert results, "golden runner produced no query results"
 
@@ -174,14 +181,11 @@ def test_golden_regression_suite() -> None:
     failures = [result for result in results if not result["passed"]]
 
     baseline_passes = sum(
-        1
-        for result in results
-        if baseline.get(result["query"], True) and not result["passed"]
+        1 for result in results if baseline.get(result["query"], True) and not result["passed"]
     )
 
     assert pass_rate >= 0.8, (
-        f"golden pass rate too low: {passed}/{len(results)} passed; "
-        f"failures={failures}"
+        f"golden pass rate too low: {passed}/{len(results)} passed; failures={failures}"
     )
     assert baseline_passes <= 2, (
         f"golden regression exceeded threshold: {baseline_passes} baseline regressions; "

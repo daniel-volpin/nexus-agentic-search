@@ -29,7 +29,9 @@ class FakeOrchestrator:
 
 class StreamingOrchestrator:
     async def search(self, req):
-        yield AnswerEvent(stage="accepted", payload={"request_id": "1", "normalized_query": req.query})
+        yield AnswerEvent(
+            stage="accepted", payload={"request_id": "1", "normalized_query": req.query}
+        )
         await asyncio.sleep(0.2)
         yield AnswerEvent(stage="searched", payload={"result_count": 1, "provider": "brave"})
         await asyncio.sleep(0.2)

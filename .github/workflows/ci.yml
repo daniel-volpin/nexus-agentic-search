@@ -35,6 +35,8 @@ jobs:
         run: uv sync
       - name: Ruff lint
         run: uv run ruff check nexus tests
+      - name: Ruff format
+        run: uv run ruff format --check nexus tests
 
   test:
     name: pytest

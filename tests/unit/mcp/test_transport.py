@@ -343,8 +343,13 @@ def test_end_to_end_mcp_tool_call_over_streamable_http() -> None:
 def test_end_to_end_mcp_tool_error_is_marked_as_error() -> None:
     orchestrator = FakeOrchestrator(
         [
-            AnswerEvent(stage="accepted", payload={"request_id": "1", "normalized_query": "python"}),
-            AnswerEvent(stage="error", payload={"reason": "llm_unavailable", "retriable": True, "detail": "provider down"}),
+            AnswerEvent(
+                stage="accepted", payload={"request_id": "1", "normalized_query": "python"}
+            ),
+            AnswerEvent(
+                stage="error",
+                payload={"reason": "llm_unavailable", "retriable": True, "detail": "provider down"},
+            ),
         ]
     )
     transport = MCPTransport(

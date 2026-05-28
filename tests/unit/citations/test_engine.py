@@ -50,7 +50,9 @@ def test_validate_citations_returns_byte_offsets_for_normalized_quote() -> None:
     assert len(valid) == 1
     citation = valid[0]
     assert citation.byte_start < citation.byte_end
-    slice_text = document.markdown.encode("utf-8")[citation.byte_start : citation.byte_end].decode("utf-8")
+    slice_text = document.markdown.encode("utf-8")[citation.byte_start : citation.byte_end].decode(
+        "utf-8"
+    )
     assert slice_text == document.markdown
 
 

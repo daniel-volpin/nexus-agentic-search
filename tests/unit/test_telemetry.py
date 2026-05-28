@@ -245,9 +245,7 @@ def test_sink_forwards_histogram() -> None:
 def test_sink_forwards_gauge() -> None:
     sink = telemetry.PrometheusTelemetrySink()
     sink.set_gauge("llm_budget_remaining_usd", 4.2, {"role": "sink_unit_test"})
-    value = REGISTRY.get_sample_value(
-        "llm_budget_remaining_usd", {"role": "sink_unit_test"}
-    )
+    value = REGISTRY.get_sample_value("llm_budget_remaining_usd", {"role": "sink_unit_test"})
     assert value == 4.2
 
 

@@ -79,7 +79,9 @@ class FakeLiteLLMBackend:
             yield chunk
 
 
-def make_config(*, primary: str = "openai/gpt-4o-2024-11-20", fallback: list[str] | None = None) -> LLMConfig:
+def make_config(
+    *, primary: str = "openai/gpt-4o-2024-11-20", fallback: list[str] | None = None
+) -> LLMConfig:
     return LLMConfig(
         roles={
             "synthesis": LLMRoleConfig(
@@ -163,6 +165,7 @@ def test_complete_uses_lmstudio_first_when_model_available() -> None:
         token_count=4,
         responses=[FakeProviderResponse(text="ok", model="gpt-oss-20b")],
     )
+
     async def probe(model_id: str) -> LMStudioAvailability:
         return {
             "available": model_id == "lmstudio/gpt-oss-20b",
@@ -203,6 +206,7 @@ def test_complete_skips_lmstudio_when_model_unavailable() -> None:
             )
         ],
     )
+
     async def probe(_model_id: str) -> LMStudioAvailability:
         return {
             "available": False,
@@ -256,7 +260,10 @@ def test_complete_does_not_mark_drift_for_lmstudio_raw_model_name() -> None:
     )
 
     async def probe(model_id: str) -> LMStudioAvailability:
-        return {"available": model_id == "lmstudio/gpt-oss-20b", "api_base": "http://127.0.0.1:1234/v1"}
+        return {
+            "available": model_id == "lmstudio/gpt-oss-20b",
+            "api_base": "http://127.0.0.1:1234/v1",
+        }
 
     client = LiteLLMClient(
         config=make_config(primary="lmstudio/gpt-oss-20b", fallback=[]),
