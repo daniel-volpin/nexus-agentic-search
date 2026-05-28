@@ -130,3 +130,21 @@ def test_load_config_uses_existing_llm_toml(
     cfg = load_config()
     # The bundled config has these three roles.
     assert {"synthesis", "rerank-decision", "query-expansion"} <= set(cfg.llm.roles)
+
+
+def test_load_config_defaults_to_duckduckgo_plus_lmstudio_primary(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _env_baseline(monkeypatch, tmp_path)
+    cfg = load_config()
+    assert "duckduckgo" in cfg.searxng_engines
+    assert cfg.llm.roles["synthesis"].primary.startswith("lmstudio/")
+
+
+def test_load_config_reads_optional_searxng_api_key(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _env_baseline(monkeypatch, tmp_path)
+    monkeypatch.setenv("SEARXNG_API_KEY", "searx-private-key")
+    cfg = load_config()
+    assert cfg.searxng_api_key == "searx-private-key"

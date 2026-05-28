@@ -14,35 +14,32 @@ uv run pytest -q
 Bearer tokens must be at least 32 characters:
 
 ```bash
-export NEXUS_HTTP_TOKEN=$(openssl rand -base64 24)
-export NEXUS_MCP_TOKEN=$(openssl rand -base64 24)
+export NEXUS_HTTP_TOKEN=0123456789abcdef0123456789abcdef
+export NEXUS_MCP_TOKEN=fedcba9876543210fedcba9876543210
+export SEARXNG_ENGINES=duckduckgo
+export LMSTUDIO_BASE_URL=http://127.0.0.1:1234
 uv run python -m nexus.main
 ```
 
-## Run it free (no paid APIs)
+The shipped LLM defaults are `LM Studio first, cloud fallback`. If your loaded local model names differ from the defaults in [`config/llm.toml`](/Users/pnl11e4o/Documents/GitHub/personal-github/nexus-agentic-search/config/llm.toml), update those `lmstudio/...` entries to match what LM Studio exposes from `GET /v1/models`.
 
-The default profile costs nothing:
+For long-term cloud support, defaults prioritize `vertex_ai/gemini-2.5-flash-lite`, with `openai/gpt-4o-mini-2024-07-18` as cheap fallback.
 
-- **Search** — leave `BRAVE_API_KEY` unset; the router uses the
-  self-hosted SearXNG sidecar (google + duckduckgo).
-- **LLM** — `config/llm.toml` points every role at Gemini's free tier;
-  set `GEMINI_API_KEY` from <https://aistudio.google.com/apikey>.
+For private SearXNG deployments, set `SEARXNG_BASE_URL` to your HTTPS endpoint and set `SEARXNG_API_KEY`; the client sends it as `X-Searx-Key`.
+For the Cloud Run + private SearXNG production pattern, see `docs/deploy/cloud-run-private-searxng.md`.
+For reusable Gitea operational workflow, use Codex skill: `~/.codex/skills/gitea-ops-release/SKILL.md`.
 
-The full stack (service + SearXNG) comes up with:
+## Vertex AI setup (recommended)
 
-```bash
-cp secrets/nexus.env.example   secrets/nexus.env
-cp secrets/searxng.env.example secrets/searxng.env
-./deploy/scripts/rotate-tokens.sh        # generate tokens + SearXNG secret
-# then edit secrets/nexus.env → set GEMINI_API_KEY
-docker compose up -d
-```
-
-The container publishes no host port (Docker-bridge only, by design),
-so probe it from inside — or from an adjacent container on `agentic-net`:
-
-```bash
-docker compose exec nexus-search curl -fsS http://localhost:8186/v1/health
+1. Enable APIs in your GCP project:
+   - Vertex AI API (`aiplatform.googleapis.com`)
+   - IAM Service Account Credentials API (`iamcredentials.googleapis.com`)
+2. Create a service account and grant least-privilege Vertex access.
+3. Create a JSON key for that service account (or use ADC if preferred).
+4. Set env vars:
+   - `VERTEX_PROJECT=your-gcp-project-id`
+   - `VERTEX_LOCATION=global`
+   - `GOOGLE_APPLICATION_CREDENTIALS=/absolute/path/to/service-account-key.json`
 ```
 
 ## Common commands

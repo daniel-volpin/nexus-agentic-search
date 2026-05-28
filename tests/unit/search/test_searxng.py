@@ -59,6 +59,22 @@ async def test_only_allowlisted_engines_sent_in_query() -> None:
     assert set(seen["engines"].split(",")) <= {"google", "duckduckgo"}
 
 
+async def test_api_key_sent_as_x_searx_key_header() -> None:
+    seen: dict[str, str] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["header"] = request.headers.get("X-Searx-Key", "")
+        return httpx.Response(200, json={"results": []})
+
+    provider = SearXNGProvider(
+        "http://searxng:8080",
+        api_key="test-searx-key",
+        client=_transport(handler),
+    )
+    await provider.search(SearchRequest(query="x"))
+    assert seen["header"] == "test-searx-key"
+
+
 # ---------- circuit breaker ----------
 
 

@@ -28,3 +28,14 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
     for item in items:
         if _GOLDEN_DIR in Path(str(item.fspath)).parents and item.get_closest_marker("golden"):
             item.add_marker(skip)
+
+
+def pytest_runtest_setup(item: pytest.Item) -> None:
+    if _GOLDEN_DIR not in Path(str(item.fspath)).parents:
+        return
+    if not item.get_closest_marker("golden"):
+        return
+    if os.environ.get("GOLDEN_LIVE") != "1":
+        return
+    if not os.environ.get("NEXUS_HTTP_TOKEN"):
+        pytest.skip("golden suite requires NEXUS_HTTP_TOKEN when GOLDEN_LIVE=1")

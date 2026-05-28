@@ -27,6 +27,8 @@ COPY pyproject.toml uv.lock ./
 COPY nexus ./nexus
 
 RUN uv sync --frozen --no-dev --no-editable \
+ && uv export --frozen --no-dev --format requirements-txt -o requirements.txt \
+ && uv pip install --system -r requirements.txt \
  && uv build --wheel \
  && uv pip install --system --no-deps dist/*.whl
 

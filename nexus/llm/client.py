@@ -4,8 +4,12 @@ import json
 import logging
 import os
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Literal, TypedDict, cast
+
+import httpx
 
 from nexus.crawl import wrap_untrusted
 
@@ -31,6 +35,23 @@ _PROVIDER_ENV_VARS = {
     "gemini": ("GEMINI_API_KEY", "GOOGLE_API_KEY"),
 }
 
+FinishReason = Literal["stop", "length", "tool_calls", "content_filter", "error"]
+
+
+class LMStudioAvailability(TypedDict):
+    available: bool
+    api_base: str
+
+
+@dataclass(frozen=True)
+class _ResolvedModel:
+    configured_model_id: str
+    backend_model: str
+    request_kwargs: dict[str, object] = field(default_factory=dict)
+
+
+LMStudioProbe = Callable[[str], Awaitable[LMStudioAvailability]]
+
 
 class LiteLLMClient:
     def __init__(
@@ -38,15 +59,18 @@ class LiteLLMClient:
         *,
         config: LLMConfig,
         backend: LiteLLMBackend | None = None,
+        model_availability_probe: LMStudioProbe | None = None,
         budget_db_path: str | Path = ":memory:",
         logger: logging.Logger | None = None,
         telemetry: LLMTelemetrySink | None = None,
     ) -> None:
         self._config = config
         self._backend = backend or _RuntimeLiteLLMBackend()
+        self._model_availability_probe = model_availability_probe or self._probe_lmstudio_model
         self._budget = DailyBudgetStore(budget_db_path)
         self._logger = logger or logging.getLogger(__name__)
         self._telemetry = telemetry
+        self._lmstudio_cache: dict[str, LMStudioAvailability] = {}
 
     async def complete(
         self,
@@ -71,26 +95,28 @@ class LiteLLMClient:
                 f"input tokens {input_tokens} exceed limit {role_config.max_input_tokens}"
             )
 
-        providers = self._providers_for_role(role)
+        providers = await self._providers_for_role(role)
         errors: list[str] = []
-        for index, model_id in enumerate(providers):
+        for index, resolved in enumerate(providers):
             try:
                 response = await self._backend.acompletion(
-                    model=model_id,
+                    model=resolved.backend_model,
                     messages=messages,
                     max_tokens=min(max_output_tokens, role_config.max_output_tokens),
                     temperature=temperature,
                     tools=tools,
+                    **resolved.request_kwargs,
                 )
                 if not isinstance(response, ProviderResponse):
                     raise TypeError("streaming response returned for non-streaming completion")
                 response = await self._repair_tool_calls_if_needed(
                     role=role,
-                    model_id=model_id,
+                    model_id=resolved.backend_model,
                     response=response,
                     messages=messages,
                     max_output_tokens=max_output_tokens,
                     temperature=temperature,
+                    request_kwargs=resolved.request_kwargs,
                 )
                 total_spend = self._budget.add_spend(role, response.cost_usd)
                 cost_authoritative = self._is_cost_authoritative()
@@ -101,16 +127,20 @@ class LiteLLMClient:
                     output_tokens=response.output_tokens,
                     cost_usd=response.cost_usd,
                     tool_calls=response.tool_calls,
-                    model_id=response.model or model_id,
+                    model_id=response.model or resolved.configured_model_id,
                     role=role,
                     fallback_used=index > 0,
-                    model_drift=(response.model or model_id) != model_id,
+                    model_drift=not _model_ids_match(
+                        expected=resolved.configured_model_id,
+                        actual=response.model or resolved.configured_model_id,
+                    ),
                     cost_authoritative=cost_authoritative,
                 )
                 if result.model_drift:
                     self._logger.warning(
                         _redact_secrets(
-                            f"model drift detected role={role} expected={model_id} actual={result.model_id}"
+                            "model drift detected "
+                            f"role={role} expected={resolved.configured_model_id} actual={result.model_id}"
                         )
                     )
                 if not cost_authoritative:
@@ -153,17 +183,18 @@ class LiteLLMClient:
                 f"input tokens {input_tokens} exceed limit {role_config.max_input_tokens}"
             )
 
-        providers = self._providers_for_role(role)
+        providers = await self._providers_for_role(role)
         errors: list[str] = []
-        for index, model_id in enumerate(providers):
+        for index, resolved in enumerate(providers):
             try:
                 stream = await self._backend.acompletion(
-                    model=model_id,
+                    model=resolved.backend_model,
                     messages=messages,
                     max_tokens=min(max_output_tokens, role_config.max_output_tokens),
                     temperature=temperature,
                     stream=True,
                     stream_options={"include_usage": True},
+                    **resolved.request_kwargs,
                 )
                 if isinstance(stream, ProviderResponse):
                     raise TypeError("non-streaming response returned for stream completion")
@@ -171,7 +202,7 @@ class LiteLLMClient:
                 input_count = 0
                 output_count = 0
                 cost_usd = 0.0
-                resolved_model = model_id
+                resolved_model = resolved.configured_model_id
                 finish_reason = None
                 async for raw_chunk in stream:
                     choice = (raw_chunk.get("choices") or [{}])[0]
@@ -195,7 +226,10 @@ class LiteLLMClient:
                         model_id=resolved_model,
                         role=role,
                         fallback_used=index > 0,
-                        model_drift=resolved_model != model_id,
+                        model_drift=not _model_ids_match(
+                            expected=resolved.configured_model_id,
+                            actual=resolved_model,
+                        ),
                     )
 
                 self._budget.add_spend(role, cost_usd)
@@ -209,7 +243,10 @@ class LiteLLMClient:
                     model_id=resolved_model,
                     role=role,
                     fallback_used=index > 0,
-                    model_drift=resolved_model != model_id,
+                    model_drift=not _model_ids_match(
+                        expected=resolved.configured_model_id,
+                        actual=resolved_model,
+                    ),
                     cost_authoritative=self._is_cost_authoritative(),
                 )
                 self._record_success_telemetry(result=result, latency_ms=_latency_ms(started_at))
@@ -223,7 +260,7 @@ class LiteLLMClient:
         raise LLMUnavailable("; ".join(errors) if errors else "no providers available")
 
     def count_tokens(self, role: str, messages: list[Message]) -> int:
-        model_id = self._config.roles[role].primary
+        model_id = self._token_counter_model(role)
         return int(self._backend.token_counter(model=model_id, messages=messages))
 
     def budget_remaining_usd(self, role: str) -> float:
@@ -238,20 +275,48 @@ class LiteLLMClient:
             self._record_error_telemetry(role=role, reason="budget_exhausted", latency_ms=0)
             raise BudgetExceeded(f"daily budget exhausted for role={role}")
 
-    def _providers_for_role(self, role: str) -> list[str]:
+    async def _providers_for_role(self, role: str) -> list[_ResolvedModel]:
         role_config = self._config.roles[role]
-        available: list[str] = []
+        available: list[_ResolvedModel] = []
         for model_id in [role_config.primary, *role_config.fallback]:
-            if self._provider_is_configured(model_id):
-                available.append(model_id)
+            resolved = await self._resolve_model(model_id)
+            if resolved is not None:
+                available.append(resolved)
         if not available:
             raise LLMUnavailable(f"no configured providers available for role={role}")
         return available
+
+    async def _resolve_model(self, model_id: str) -> _ResolvedModel | None:
+        provider, _, raw_model = model_id.partition("/")
+        if provider == "lmstudio":
+            status = await self._lmstudio_status(model_id)
+            if not status["available"]:
+                return None
+            return _ResolvedModel(
+                configured_model_id=model_id,
+                backend_model=f"openai/{raw_model}",
+                request_kwargs={"api_base": status["api_base"], "api_key": "lm-studio"},
+            )
+        if not self._provider_is_configured(model_id):
+            return None
+        return _ResolvedModel(configured_model_id=model_id, backend_model=model_id)
+
+    async def _lmstudio_status(self, model_id: str) -> LMStudioAvailability:
+        cached = self._lmstudio_cache.get(model_id)
+        if cached is not None:
+            return cached
+        status = await self._model_availability_probe(model_id)
+        self._lmstudio_cache[model_id] = status
+        return status
 
     def _provider_is_configured(self, model_id: str) -> bool:
         if not isinstance(self._backend, _RuntimeLiteLLMBackend):
             return True
         provider = model_id.split("/", 1)[0]
+        if provider == "vertex_ai":
+            # LiteLLM Vertex requires project + region. Auth comes from
+            # GOOGLE_APPLICATION_CREDENTIALS or ADC (e.g. gcloud auth app-default login).
+            return bool(os.getenv("VERTEX_PROJECT")) and bool(os.getenv("VERTEX_LOCATION"))
         env_names = _PROVIDER_ENV_VARS.get(provider)
         if env_names is None:
             return True
@@ -312,6 +377,7 @@ class LiteLLMClient:
         messages: list[Message],
         max_output_tokens: int,
         temperature: float,
+        request_kwargs: dict[str, object],
     ) -> ProviderResponse:
         if not _has_malformed_tool_call(response.tool_calls):
             return response
@@ -329,6 +395,7 @@ class LiteLLMClient:
             max_tokens=min(max_output_tokens, self._config.roles[role].max_output_tokens),
             temperature=temperature,
             tools=None,
+            **request_kwargs,
         )
         if not isinstance(retried, ProviderResponse):
             raise TypeError("streaming response returned for non-streaming completion")
@@ -343,6 +410,35 @@ class LiteLLMClient:
                 model=retried.model or model_id,
             )
         return retried
+
+    def _token_counter_model(self, role: str) -> str:
+        configured = [self._config.roles[role].primary, *self._config.roles[role].fallback]
+        for model_id in configured:
+            if not model_id.startswith("lmstudio/"):
+                return model_id
+        return configured[0]
+
+    async def _probe_lmstudio_model(self, model_id: str) -> LMStudioAvailability:
+        _, _, raw_model = model_id.partition("/")
+        api_base = _lmstudio_api_base()
+        if not api_base:
+            return {"available": False, "api_base": ""}
+
+        try:
+            async with httpx.AsyncClient(timeout=2.0) as client:
+                response = await client.get(f"{api_base}/models")
+                response.raise_for_status()
+        except httpx.HTTPError:
+            return {"available": False, "api_base": api_base}
+
+        payload = response.json()
+        data = payload.get("data", [])
+        available_models = {
+            str(item.get("id", ""))
+            for item in data
+            if isinstance(item, dict)
+        }
+        return {"available": raw_model in available_models, "api_base": api_base}
 
 
 class _RuntimeLiteLLMBackend:
@@ -375,7 +471,7 @@ class _RuntimeLiteLLMBackend:
             finish_reason=choice.finish_reason or "error",
             input_tokens=int(getattr(usage, "prompt_tokens", 0) or 0),
             output_tokens=int(getattr(usage, "completion_tokens", 0) or 0),
-            cost_usd=float(getattr(response, "_hidden_params", {}).get("response_cost", 0.0)),
+            cost_usd=_coerce_response_cost(getattr(response, "_hidden_params", {})),
             tool_calls=tool_calls,
             model=getattr(response, "model", "") or str(kwargs.get("model") or ""),
         )
@@ -408,6 +504,8 @@ def _normalize_finish_reason(value: object) -> FinishReason | None:
         return "tool_calls"
     if lowered == "content_filter":
         return "content_filter"
+    if lowered == "error":
+        return "error"
     return "error"
 
 
@@ -425,3 +523,26 @@ def _has_malformed_tool_call(tool_calls: list[ToolCall]) -> bool:
 
 def _latency_ms(started_at: float) -> int:
     return int((time.perf_counter() - started_at) * 1000)
+
+
+def _lmstudio_api_base() -> str:
+    base_url = os.getenv("LMSTUDIO_BASE_URL", "http://127.0.0.1:1234").rstrip("/")
+    return f"{base_url}/v1"
+
+
+def _model_ids_match(*, expected: str, actual: str) -> bool:
+    if expected == actual:
+        return True
+    provider, _, model = expected.partition("/")
+    if provider != "lmstudio":
+        return False
+    return actual in {model, f"openai/{model}"}
+
+
+def _coerce_response_cost(hidden_params: object) -> float:
+    if not isinstance(hidden_params, dict):
+        return 0.0
+    raw_cost = hidden_params.get("response_cost")
+    if raw_cost is None:
+        return 0.0
+    return float(raw_cost)

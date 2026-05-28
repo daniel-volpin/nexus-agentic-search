@@ -20,6 +20,8 @@ from nexus.llm import (
     ProviderResponse,
     _redact_secrets,
 )
+from nexus.llm.client import LMStudioAvailability, _coerce_response_cost
+from nexus.llm.types import StreamChunk, ToolCall
 
 
 @dataclass
@@ -29,7 +31,7 @@ class FakeProviderResponse:
     input_tokens: int = 10
     output_tokens: int = 5
     cost_usd: float = 0.25
-    tool_calls: list[dict] | None = None
+    tool_calls: list[ToolCall] | None = None
     model: str = "openai/gpt-4o-2024-11-20"
     chunks: list[dict] | None = None
 
@@ -77,12 +79,12 @@ class FakeLiteLLMBackend:
             yield chunk
 
 
-def make_config() -> LLMConfig:
+def make_config(*, primary: str = "openai/gpt-4o-2024-11-20", fallback: list[str] | None = None) -> LLMConfig:
     return LLMConfig(
         roles={
             "synthesis": LLMRoleConfig(
-                primary="openai/gpt-4o-2024-11-20",
-                fallback=["anthropic/claude-sonnet-4-5-20250929"],
+                primary=primary,
+                fallback=fallback or ["anthropic/claude-sonnet-4-5-20250929"],
                 max_input_tokens=32,
                 max_output_tokens=8,
             )
@@ -109,6 +111,10 @@ def test_redact_secrets_masks_known_patterns() -> None:
     assert "sk-" not in redacted
     assert "Bearer xyz" not in redacted
     assert redacted.count("[REDACTED]") == 2
+
+
+def test_coerce_response_cost_treats_none_as_zero() -> None:
+    assert _coerce_response_cost({"response_cost": None}) == 0.0
 
 
 def test_complete_raises_input_too_large() -> None:
@@ -152,6 +158,78 @@ def test_complete_falls_back_after_provider_error() -> None:
     assert len(backend.calls) == 2
 
 
+def test_complete_uses_lmstudio_first_when_model_available() -> None:
+    backend = FakeLiteLLMBackend(
+        token_count=4,
+        responses=[FakeProviderResponse(text="ok", model="gpt-oss-20b")],
+    )
+    async def probe(model_id: str) -> LMStudioAvailability:
+        return {
+            "available": model_id == "lmstudio/gpt-oss-20b",
+            "api_base": "http://127.0.0.1:1234/v1",
+        }
+
+    client = LiteLLMClient(
+        config=make_config(
+            primary="lmstudio/gpt-oss-20b",
+            fallback=["openai/gpt-4o-2024-11-20"],
+        ),
+        backend=backend,
+        model_availability_probe=probe,
+    )
+
+    result = asyncio.run(
+        client.complete(
+            role="synthesis",
+            messages=[{"role": "user", "content": "hello"}],
+            max_output_tokens=8,
+        )
+    )
+
+    assert result.text == "ok"
+    assert backend.calls[0]["model"] == "openai/gpt-oss-20b"
+    assert backend.calls[0]["api_base"] == "http://127.0.0.1:1234/v1"
+    assert backend.calls[0]["api_key"] == "lm-studio"
+    assert result.model_drift is False
+
+
+def test_complete_skips_lmstudio_when_model_unavailable() -> None:
+    backend = FakeLiteLLMBackend(
+        token_count=4,
+        responses=[
+            FakeProviderResponse(
+                text="cloud ok",
+                model="openai/gpt-4o-2024-11-20",
+            )
+        ],
+    )
+    async def probe(_model_id: str) -> LMStudioAvailability:
+        return {
+            "available": False,
+            "api_base": "http://127.0.0.1:1234/v1",
+        }
+
+    client = LiteLLMClient(
+        config=make_config(
+            primary="lmstudio/gpt-oss-20b",
+            fallback=["openai/gpt-4o-2024-11-20"],
+        ),
+        backend=backend,
+        model_availability_probe=probe,
+    )
+
+    result = asyncio.run(
+        client.complete(
+            role="synthesis",
+            messages=[{"role": "user", "content": "hello"}],
+            max_output_tokens=8,
+        )
+    )
+
+    assert result.text == "cloud ok"
+    assert backend.calls[0]["model"] == "openai/gpt-4o-2024-11-20"
+
+
 def test_complete_marks_model_drift_when_provider_returns_different_model() -> None:
     backend = FakeLiteLLMBackend(
         token_count=4,
@@ -169,6 +247,32 @@ def test_complete_marks_model_drift_when_provider_returns_different_model() -> N
 
     assert result.model_drift is True
     assert result.model_id == "openai/gpt-4o-mini-2024-07-18"
+
+
+def test_complete_does_not_mark_drift_for_lmstudio_raw_model_name() -> None:
+    backend = FakeLiteLLMBackend(
+        token_count=4,
+        responses=[FakeProviderResponse(text="ok", model="gpt-oss-20b")],
+    )
+
+    async def probe(model_id: str) -> LMStudioAvailability:
+        return {"available": model_id == "lmstudio/gpt-oss-20b", "api_base": "http://127.0.0.1:1234/v1"}
+
+    client = LiteLLMClient(
+        config=make_config(primary="lmstudio/gpt-oss-20b", fallback=[]),
+        backend=backend,
+        model_availability_probe=probe,
+    )
+
+    result = asyncio.run(
+        client.complete(
+            role="synthesis",
+            messages=[{"role": "user", "content": "hello"}],
+            max_output_tokens=8,
+        )
+    )
+
+    assert result.model_drift is False
 
 
 def test_complete_raises_budget_exceeded_after_hard_cap() -> None:
@@ -335,8 +439,8 @@ def test_stream_complete_accumulates_usage_and_text() -> None:
     )
     client = LiteLLMClient(config=make_config(), backend=backend)
 
-    async def collect() -> list[object]:
-        rows = []
+    async def collect() -> list[StreamChunk]:
+        rows: list[StreamChunk] = []
         async for item in client.stream_complete(
             role="synthesis",
             messages=[{"role": "user", "content": "hello"}],
