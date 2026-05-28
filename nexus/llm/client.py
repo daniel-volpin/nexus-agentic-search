@@ -7,7 +7,7 @@ import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal, TypedDict, cast
+from typing import TypedDict
 
 import httpx
 
@@ -34,8 +34,6 @@ _PROVIDER_ENV_VARS = {
     "anthropic": ("ANTHROPIC_API_KEY",),
     "gemini": ("GEMINI_API_KEY", "GOOGLE_API_KEY"),
 }
-
-FinishReason = Literal["stop", "length", "tool_calls", "content_filter", "error"]
 
 
 class LMStudioAvailability(TypedDict):
@@ -433,11 +431,7 @@ class LiteLLMClient:
 
         payload = response.json()
         data = payload.get("data", [])
-        available_models = {
-            str(item.get("id", ""))
-            for item in data
-            if isinstance(item, dict)
-        }
+        available_models = {str(item.get("id", "")) for item in data if isinstance(item, dict)}
         return {"available": raw_model in available_models, "api_base": api_base}
 
 
