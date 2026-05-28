@@ -45,7 +45,11 @@ def canonicalize(url: str) -> str:
     if path != "/" and path.endswith("/"):
         path = path[:-1]
 
-    params = [(k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True) if not _is_unwanted_param(k)]
+    params = [
+        (k, v)
+        for k, v in parse_qsl(parts.query, keep_blank_values=True)
+        if not _is_unwanted_param(k)
+    ]
     params.sort(key=lambda item: (item[0], item[1]))
     query = urlencode(params, doseq=True)
 

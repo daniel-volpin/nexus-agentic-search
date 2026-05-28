@@ -14,15 +14,13 @@ Boot sequence (deliberate order):
 Each step has a single failure mode and a clear log line. The selftest
 is the last gate before the service accepts traffic.
 
-NOTE — placeholder search/crawl wiring
-======================================
-Spec 01 ``BraveSearchClient`` and ``SearXNGProvider`` are still
-scaffolding (per their module docstrings). This entrypoint wires a
-``_PlaceholderSearchClient`` that returns an empty SearchResponse and
-logs a single CRITICAL line at startup so the operator knows the
-service is up but search is dead until that hardening lands. The
-container itself, transports, auth, telemetry, cache, and selftest
-are all real.
+Search wiring (Spec 01): the orchestrator gets a real
+``DefaultSearchClient`` — Brave primary with SearXNG (google +
+duckduckgo, breaker-guarded) fallback. With no Brave key the router
+uses SearXNG only; if neither is reachable a search raises
+``SearchUnavailable`` rather than returning empty results. Crawl uses
+the real ``CrawlClient`` behind the SSRF guard. The LLM gateway,
+cache, telemetry, transports, auth, and selftest are all real.
 """
 
 from __future__ import annotations
@@ -43,40 +41,32 @@ from nexus.llm import LiteLLMClient
 from nexus.logging import setup_logging
 from nexus.mcp.server import MCPTransport, create_streamable_http_app
 from nexus.orchestrator.service import Orchestrator
-from nexus.search import SearchRequest, SearchResponse
+from nexus.search import BraveProvider, DefaultSearchClient, SearXNGProvider
 from nexus.security import run_selftest
 from nexus.telemetry import setup_telemetry
 
 logger = logging.getLogger(__name__)
 
 
-class _PlaceholderSearchClient:
-    """Stand-in until Spec 01 BraveSearchClient lands.
+def _build_search_client(config: Config) -> DefaultSearchClient:
+    """Brave-first router with SearXNG fallback (Spec 01).
 
-    Returns an empty SearchResponse for every query. The orchestrator
-    handles zero-result responses gracefully (yields an `ungrounded`
-    answer event). Operators see one CRITICAL log line at construction
-    so the deployment is loud about the missing piece.
+    Both providers are real. If no Brave key is configured the router
+    transparently uses SearXNG (google + duckduckgo, breaker-guarded).
+    If neither is reachable a search raises ``SearchUnavailable`` — no
+    silent empty-result placeholder.
     """
-
-    def __init__(self) -> None:
-        logger.critical(
-            "search_provider_placeholder_in_use",
-            extra={
-                "remediation": (
-                    "Spec 01 BraveSearchClient is a stub; this deployment "
-                    "returns empty results until that component is hardened."
-                )
-            },
+    brave = BraveProvider(api_key=config.env.brave_api_key.get_secret_value())
+    searxng = SearXNGProvider(
+        base_url=config.searxng_base_url,
+        engines=config.searxng_engines,
+    )
+    if not brave.enabled:
+        logger.warning(
+            "brave_not_configured_using_searxng_only",
+            extra={"engines": list(config.searxng_engines)},
         )
-
-    async def search(self, req: SearchRequest) -> SearchResponse:
-        return SearchResponse(
-            results=[],
-            provider="placeholder",
-            query_sent=req.query,
-            latency_ms=0,
-        )
+    return DefaultSearchClient(brave=brave, searxng=searxng)
 
 
 async def amain() -> int:
@@ -149,12 +139,10 @@ async def amain() -> int:
 # ---------- transport bootstrap ----------
 
 
-def _build_orchestrator(llm_client: LiteLLMClient) -> Orchestrator:
-    """Construct an Orchestrator with placeholder search +
-    real crawl + real llm. See module docstring for the placeholder
-    caveat."""
+def _build_orchestrator(config: Config, llm_client: LiteLLMClient) -> Orchestrator:
+    """Wire the real search router + crawl client + LLM gateway."""
     return Orchestrator(
-        search_client=_PlaceholderSearchClient(),
+        search_client=_build_search_client(config),
         crawl_client=CrawlClient(ssrf_guard=SSRFGuard()),
         llm_client=llm_client,
     )
@@ -164,7 +152,7 @@ def _start_http(
     config: Config, llm_client: LiteLLMClient
 ) -> tuple[uvicorn.Server, asyncio.Task[None]]:
     app = create_http_app(
-        orchestrator=_build_orchestrator(llm_client),
+        orchestrator=_build_orchestrator(config, llm_client),
         llm_config_roles=dict(config.llm.roles),
         config=config.http,
     )
@@ -188,7 +176,7 @@ def _start_mcp(config: Config, llm_client: LiteLLMClient) -> asyncio.Task[None]:
     in environments where fastmcp's HTTP server is not importable
     (so tests can run without it)."""
     transport = MCPTransport(
-        orchestrator=_build_orchestrator(llm_client),
+        orchestrator=_build_orchestrator(config, llm_client),
         llm_config_roles=dict(config.llm.roles),
         config=config.mcp,
     )
