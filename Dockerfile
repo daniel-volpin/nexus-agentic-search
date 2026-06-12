@@ -35,9 +35,11 @@ RUN uv sync --frozen --no-dev --no-editable \
 
 FROM python:3.11-slim-bookworm AS runtime
 
+ARG GIT_SHA=""
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    NEXUS_HOME=/var/lib/nexus
+    NEXUS_HOME=/var/lib/nexus \
+    GIT_SHA=${GIT_SHA}
 
 RUN groupadd --system --gid 10001 nexus \
  && useradd --system --uid 10001 --gid 10001 --home-dir /home/nexus --shell /sbin/nologin nexus \

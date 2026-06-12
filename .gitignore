@@ -30,6 +30,10 @@ secrets/*.key
 secrets/*.json
 *.pem
 
+# Build-and-pin digest tracking
+.last-image-digest
+.last-image-digest.prev
+
 # Editor / OS
 .DS_Store
 .vscode/

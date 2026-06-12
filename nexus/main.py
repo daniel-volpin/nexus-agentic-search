@@ -235,6 +235,17 @@ def _safe_awaits(*tasks: asyncio.Task[None]) -> tuple[Awaitable[None], ...]:
 
 
 def _version() -> str:
+    """Return a version string for OTel resource attributes.
+
+    In containers, ``GIT_SHA`` is injected at build time (see
+    ``build-and-pin.sh``).  Falls back to the package version for local
+    dev / test runs.
+    """
+    import os
+
+    sha = os.environ.get("GIT_SHA", "")
+    if sha:
+        return sha[:12]
     from nexus import __version__
 
     return __version__
