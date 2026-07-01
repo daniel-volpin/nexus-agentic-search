@@ -1,0 +1,13 @@
+cff-version: 1.2.0
+title: nexus-agentic-search
+message: If you use this project, please cite it using this metadata.
+type: software
+authors:
+  - given-names: Daniel
+    family-names: Volpin
+version: 0.1.0
+date-released: 2026-07-02
+license: MIT
+repository-code: https://github.com/daniel-volpin/nexus-agentic-search
+url: https://github.com/daniel-volpin/nexus-agentic-search
+abstract: Self-hosted backend for agentic web search with HTTP and MCP interfaces.

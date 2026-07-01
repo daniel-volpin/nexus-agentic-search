@@ -7,7 +7,7 @@ name = "nexus-agentic-search"
 version = "0.1.0"
 description = "Self-hosted backend for agentic web search with HTTP and MCP interfaces."
 readme = "README.md"
-license = { file = "LICENSE" }
+license = "MIT"
 requires-python = ">=3.11"
 authors = [
   { name = "Daniel Volpin" },
@@ -16,7 +16,6 @@ keywords = ["agentic-search", "llm", "mcp", "search", "fastapi"]
 classifiers = [
   "Development Status :: 4 - Beta",
   "Intended Audience :: Developers",
-  "License :: OSI Approved :: MIT License",
   "Operating System :: OS Independent",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.11",
