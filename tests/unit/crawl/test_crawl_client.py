@@ -213,7 +213,9 @@ async def test_owned_client_is_reused_across_fetches(
     class _FakeClient:
         async def get(self, *args, **kwargs) -> httpx.Response:
             return httpx.Response(
-                200, headers={"Content-Type": "text/html"}, content=b"<html><body><p>ok</p></body></html>"
+                200,
+                headers={"Content-Type": "text/html"},
+                content=b"<html><body><p>ok</p></body></html>",
             )
 
         async def aclose(self) -> None:

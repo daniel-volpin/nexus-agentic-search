@@ -176,9 +176,7 @@ def _start_http(
     return server, task
 
 
-def _start_mcp(
-    config: Config, orchestrator: Orchestrator
-) -> asyncio.Task[None]:
+def _start_mcp(config: Config, orchestrator: Orchestrator) -> asyncio.Task[None]:
     """MCP server. Runs on its own uvicorn instance via the
     streamable-http app FastMCP provides. Falls back to a no-op task
     in environments where fastmcp's HTTP server is not importable
