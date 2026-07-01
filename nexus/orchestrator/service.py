@@ -39,6 +39,12 @@ class Orchestrator:
         self._telemetry = telemetry
         self._rerank = rerank_fn or self._simple_rerank
 
+    async def aclose(self) -> None:
+        for component in (self._search, self._crawl, self._llm):
+            close = getattr(component, "aclose", None)
+            if close is not None:
+                await close()
+
     async def search(self, req: SearchRequest) -> AsyncIterator[AnswerEvent]:
         started_at = asyncio.get_running_loop().time()
         request_id = str(uuid.uuid4())

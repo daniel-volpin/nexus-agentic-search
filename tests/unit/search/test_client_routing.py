@@ -132,6 +132,31 @@ async def test_no_brave_key_uses_searxng_directly() -> None:
     assert brave.calls == 0
 
 
+async def test_results_are_capped_to_requested_max_results() -> None:
+    brave = _FakeBrave(
+        enabled=True,
+        response=_response("brave", ["https://a", "https://b", "https://c"]),
+    )
+    searxng = _FakeSearxng(response=_response("searxng", []))
+    client = DefaultSearchClient(brave=brave, searxng=searxng)
+
+    resp = await client.search(SearchRequest(query="q", max_results=1))
+
+    assert [r.url for r in resp.results] == ["https://a"]
+
+
+async def test_merged_results_are_capped_to_requested_max_results() -> None:
+    brave = _FakeBrave(enabled=True, response=_response("brave", ["https://a"]))
+    searxng = _FakeSearxng(
+        response=_response("searxng", ["https://x", "https://y", "https://z"], "searxng:google")
+    )
+    client = DefaultSearchClient(brave=brave, searxng=searxng)
+
+    resp = await client.search(SearchRequest(query="q", max_results=2))
+
+    assert [r.url for r in resp.results] == ["https://a", "https://x"]
+
+
 # ---------- everything down → raise, never empty ----------
 
 

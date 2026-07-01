@@ -71,14 +71,14 @@ class DefaultSearchClient:
             cached = await self._cache.get(key)
             if cached is not None:
                 CACHE_HIT_TOTAL.labels(namespace=_CACHE_NAMESPACE).inc()
-                return SearchResponse.model_validate(cached)
+                return self._cap_response(SearchResponse.model_validate(cached), req.max_results)
             CACHE_MISS_TOTAL.labels(namespace=_CACHE_NAMESPACE).inc()
 
         response = await self._route(req)
 
         if self._cache is not None:
             await self._cache.set(key, response.model_dump(mode="json"))
-        return response
+        return self._cap_response(response, req.max_results)
 
     async def _route(self, req: SearchRequest) -> SearchResponse:
         started = time.perf_counter()
@@ -146,3 +146,9 @@ class DefaultSearchClient:
         return response.model_copy(
             update={"latency_ms": int((time.perf_counter() - started) * 1000)}
         )
+
+    @staticmethod
+    def _cap_response(response: SearchResponse, max_results: int) -> SearchResponse:
+        if len(response.results) <= max_results:
+            return response
+        return response.model_copy(update={"results": response.results[:max_results]})

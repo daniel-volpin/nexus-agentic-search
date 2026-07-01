@@ -202,3 +202,40 @@ async def test_render_js_raises_not_implemented() -> None:
     crawler = _crawler(lambda _r: httpx.Response(200))
     with pytest.raises(NotImplementedError, match="render_js"):
         await crawler.fetch(CrawlRequest(url="http://public.test/a", render_js=True))
+
+
+async def test_owned_client_is_reused_across_fetches(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    constructed = 0
+    closed = 0
+
+    class _FakeClient:
+        async def get(self, *args, **kwargs) -> httpx.Response:
+            return httpx.Response(
+                200, headers={"Content-Type": "text/html"}, content=b"<html><body><p>ok</p></body></html>"
+            )
+
+        async def aclose(self) -> None:
+            nonlocal closed
+            closed += 1
+
+    def _factory(*args, **kwargs):
+        nonlocal constructed
+        constructed += 1
+        return _FakeClient()
+
+    monkeypatch.setattr("nexus.crawl.client.httpx.AsyncClient", _factory)
+    crawler = CrawlClient(
+        ssrf_guard=SSRFGuard(),
+        rate_limiter=PerDomainRateLimiter(rate_per_s=1000, burst=1000),
+        robots=_AllowAllRobots(user_agent="test"),
+    )
+
+    with _patch_dns({"public.test": _PUBLIC}):
+        await crawler.fetch(CrawlRequest(url="http://public.test/a"))
+        await crawler.fetch(CrawlRequest(url="http://public.test/b"))
+    await crawler.aclose()
+
+    assert constructed == 1
+    assert closed == 1

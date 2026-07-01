@@ -47,6 +47,7 @@ class BraveProvider:
         self._endpoint = endpoint
         self._timeout_s = timeout_s
         self._client = client  # injectable for tests
+        self._owns_client = client is None
 
     @property
     def enabled(self) -> bool:
@@ -92,30 +93,35 @@ class BraveProvider:
     async def _request_with_retries(
         self, params: dict[str, str | int], headers: dict[str, str]
     ) -> dict:
-        owns_client = self._client is None
-        client = self._client or httpx.AsyncClient(timeout=self._timeout_s)
-        try:
-            attempt = 0
-            while True:
-                try:
-                    resp = await client.get(self._endpoint, params=params, headers=headers)
-                except (httpx.TimeoutException, httpx.TransportError) as exc:
-                    raise SearchUnavailable(f"brave transport error: {exc!s}") from exc
+        client = self._get_client()
+        attempt = 0
+        while True:
+            try:
+                resp = await client.get(self._endpoint, params=params, headers=headers)
+            except (httpx.TimeoutException, httpx.TransportError) as exc:
+                raise SearchUnavailable(f"brave transport error: {exc!s}") from exc
 
-                if resp.status_code == 200:
-                    return resp.json()
-                if resp.status_code == 429 and attempt < _MAX_429_RETRIES:
-                    await asyncio.sleep(self._backoff(attempt))
-                    attempt += 1
-                    continue
-                if 500 <= resp.status_code < 600 and attempt == 0:
-                    await asyncio.sleep(0.5)
-                    attempt += 1
-                    continue
-                raise SearchUnavailable(f"brave returned http {resp.status_code}")
-        finally:
-            if owns_client:
-                await client.aclose()
+            if resp.status_code == 200:
+                return resp.json()
+            if resp.status_code == 429 and attempt < _MAX_429_RETRIES:
+                await asyncio.sleep(self._backoff(attempt))
+                attempt += 1
+                continue
+            if 500 <= resp.status_code < 600 and attempt == 0:
+                await asyncio.sleep(0.5)
+                attempt += 1
+                continue
+            raise SearchUnavailable(f"brave returned http {resp.status_code}")
+
+    def _get_client(self) -> httpx.AsyncClient:
+        if self._client is None:
+            self._client = httpx.AsyncClient(timeout=self._timeout_s)
+        return self._client
+
+    async def aclose(self) -> None:
+        if self._owns_client and self._client is not None:
+            await self._client.aclose()
+            self._client = None
 
     @staticmethod
     def _backoff(attempt: int) -> float:

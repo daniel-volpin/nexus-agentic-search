@@ -116,8 +116,9 @@ async def amain() -> int:
             extra={"failures": list(selftest_report.failures)},
         )
 
-    http_server, http_task = _start_http(config, llm_client, telemetry_sink)
-    mcp_task = _start_mcp(config, llm_client, telemetry_sink)
+    orchestrator = _build_orchestrator(config, llm_client, telemetry_sink)
+    http_server, http_task = _start_http(config, orchestrator)
+    mcp_task = _start_mcp(config, orchestrator)
 
     logger.info(
         "service_ready",
@@ -139,6 +140,7 @@ async def amain() -> int:
         for task in (http_task, mcp_task):
             task.cancel()
         await asyncio.gather(*_safe_awaits(http_task, mcp_task), return_exceptions=True)
+        await orchestrator.aclose()
         shutdown_cache()
         logger.info("shutdown_complete")
 
@@ -162,10 +164,10 @@ def _build_orchestrator(
 
 
 def _start_http(
-    config: Config, llm_client: LiteLLMClient, telemetry_sink: PrometheusTelemetrySink
+    config: Config, orchestrator: Orchestrator
 ) -> tuple[uvicorn.Server, asyncio.Task[None]]:
     app = create_http_app(
-        orchestrator=_build_orchestrator(config, llm_client, telemetry_sink),
+        orchestrator=orchestrator,
         llm_config_roles=dict(config.llm.roles),
         config=config.http,
     )
@@ -175,14 +177,14 @@ def _start_http(
 
 
 def _start_mcp(
-    config: Config, llm_client: LiteLLMClient, telemetry_sink: PrometheusTelemetrySink
+    config: Config, orchestrator: Orchestrator
 ) -> asyncio.Task[None]:
     """MCP server. Runs on its own uvicorn instance via the
     streamable-http app FastMCP provides. Falls back to a no-op task
     in environments where fastmcp's HTTP server is not importable
     (so tests can run without it)."""
     transport = MCPTransport(
-        orchestrator=_build_orchestrator(config, llm_client, telemetry_sink),
+        orchestrator=orchestrator,
         llm_config_roles=dict(config.llm.roles),
         config=config.mcp,
     )

@@ -245,6 +245,31 @@ def test_http_stream_sends_terminal_error_event() -> None:
     assert '"reason": "llm_unavailable"' in body
 
 
+def test_http_stream_invalid_input_returns_422_before_stream_starts() -> None:
+    client, _ = make_client([make_answer_event()])
+
+    response = client.post(
+        "/v1/search/stream", headers={"Authorization": "Bearer secret"}, json={"query": " "}
+    )
+
+    assert response.status_code == 422
+    assert response.json() == {"error": "invalid_input", "field": "query"}
+
+
+def test_http_stream_invalid_json_releases_concurrency_slot() -> None:
+    client, _ = make_client([make_answer_event()])
+
+    response = client.post(
+        "/v1/search/stream",
+        headers={"Authorization": "Bearer secret", "Content-Type": "application/json"},
+        content=b"{",
+    )
+
+    assert response.status_code == 422
+    assert response.json() == {"error": "invalid_input", "field": "body"}
+    assert dict(client.app.state.rate_limiter.token_inflight) == {}
+
+
 def test_http_concurrency_limit_returns_429() -> None:
     orchestrator = SlowOrchestrator([make_answer_event()], delay_s=0.2)
     app = create_app(

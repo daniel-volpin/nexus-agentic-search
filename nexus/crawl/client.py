@@ -68,6 +68,7 @@ class CrawlClient:
         self._robots = robots or RobotsCache(user_agent=user_agent)
         self._cache = cache
         self._client = client  # injectable for tests
+        self._owns_client = client is None
 
     async def fetch(self, req: CrawlRequest) -> Document:
         if req.render_js:
@@ -104,16 +105,11 @@ class CrawlClient:
         if req.respect_robots and not await self._robots.allowed(req.url, self._fetch_robots_text):
             return self._empty(requested, now, "blocked_by_robots", "", None, [])
 
-        owns_client = self._client is None
-        client = self._client or httpx.AsyncClient(timeout=req.timeout_s, follow_redirects=False)
-        try:
-            document = await self._fetch_following_redirects(req, requested, now, client)
-            if self._cache is not None and document.status == "ok":
-                await self._cache.set(cache_key, document.model_dump(mode="json"))
-            return document
-        finally:
-            if owns_client:
-                await client.aclose()
+        client = self._get_client()
+        document = await self._fetch_following_redirects(req, requested, now, client)
+        if self._cache is not None and document.status == "ok":
+            await self._cache.set(cache_key, document.model_dump(mode="json"))
+        return document
 
     # ---------- redirect loop with per-hop SSRF guard ----------
 
@@ -227,18 +223,24 @@ class CrawlClient:
             target = self._ssrf.resolve_pinned(robots_url)
         except ValueError:
             return None
-        owns_client = self._client is None
-        client = self._client or httpx.AsyncClient(timeout=10.0, follow_redirects=False)
+        client = self._get_client()
         try:
             resp = await self._request_pinned(client, robots_url, target, 10.0)
         except httpx.HTTPError:
             return None
-        finally:
-            if owns_client:
-                await client.aclose()
         if resp.status_code != 200:
             return None
         return resp.text
+
+    def _get_client(self) -> httpx.AsyncClient:
+        if self._client is None:
+            self._client = httpx.AsyncClient(follow_redirects=False)
+        return self._client
+
+    async def aclose(self) -> None:
+        if self._owns_client and self._client is not None:
+            await self._client.aclose()
+            self._client = None
 
     # ---------- helpers ----------
 

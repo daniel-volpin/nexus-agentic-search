@@ -148,6 +148,36 @@ async def test_transport_error_raises_search_unavailable() -> None:
         await provider.search(SearchRequest(query="x"))
 
 
+async def test_owned_client_is_reused_across_requests(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    constructed = 0
+    closed = 0
+
+    class _FakeClient:
+        async def get(self, *args, **kwargs) -> httpx.Response:
+            return httpx.Response(200, json={"web": {"results": []}})
+
+        async def aclose(self) -> None:
+            nonlocal closed
+            closed += 1
+
+    def _factory(*args, **kwargs):
+        nonlocal constructed
+        constructed += 1
+        return _FakeClient()
+
+    monkeypatch.setattr("nexus.search.brave.httpx.AsyncClient", _factory)
+    provider = BraveProvider(api_key="key")
+
+    await provider.search(SearchRequest(query="x"))
+    await provider.search(SearchRequest(query="y"))
+    await provider.aclose()
+
+    assert constructed == 1
+    assert closed == 1
+
+
 # ---------- secret hygiene ----------
 
 

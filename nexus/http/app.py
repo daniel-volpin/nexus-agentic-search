@@ -86,8 +86,7 @@ def create_app(*, orchestrator, llm_config_roles: dict[str, object], config: HTT
             events.append(event)
         return events
 
-    async def _stream_orchestrator(payload: dict):
-        request = _validate_request(payload)
+    async def _stream_orchestrator(request: SearchRequest):
         async for event in orchestrator.search(request):
             yield event
 
@@ -135,12 +134,17 @@ def create_app(*, orchestrator, llm_config_roles: dict[str, object], config: HTT
             raise HTTPException(
                 status_code=429, detail={"error": "rate_limited", "retry_after_s": 60}
             )
-        payload = _parse_payload(request)
+        try:
+            payload = _parse_payload(request)
+            search_request = _validate_request(payload)
+        except Exception:
+            app.state.rate_limiter.release_concurrency(token=token)
+            raise
 
         async def generate():
             idx = 0
             try:
-                async for event in _stream_orchestrator(payload):
+                async for event in _stream_orchestrator(search_request):
                     idx += 1
                     yield f"event: {event.stage}\nid: {idx}\ndata: {json.dumps(event.payload, default=str)}\n\n"
             finally:

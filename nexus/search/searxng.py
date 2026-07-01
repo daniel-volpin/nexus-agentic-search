@@ -116,6 +116,7 @@ class SearXNGProvider:
         self._timeout_s = timeout_s
         self._breaker = breaker or CircuitBreaker()
         self._client = client
+        self._owns_client = client is None
         qps = {**_DEFAULT_QPS, **(qps_per_engine or {})}
         self._buckets = {e: _TokenBucket(qps[e]) for e in engines}
 
@@ -158,8 +159,7 @@ class SearXNGProvider:
     # ---------- HTTP ----------
 
     async def _request(self, params: dict[str, str]) -> dict:
-        owns_client = self._client is None
-        client = self._client or httpx.AsyncClient(timeout=self._timeout_s)
+        client = self._get_client()
         headers: dict[str, str] = {}
         if self._api_key:
             headers["X-Searx-Key"] = self._api_key
@@ -167,9 +167,6 @@ class SearXNGProvider:
             resp = await client.get(f"{self._base_url}/search", params=params, headers=headers)
         except (httpx.TimeoutException, httpx.TransportError) as exc:
             raise SearchUnavailable(f"searxng transport error: {exc!s}") from exc
-        finally:
-            if owns_client:
-                await client.aclose()
 
         if resp.status_code == 429:
             # A 429 from SearXNG's front door — trip every active engine.
@@ -179,6 +176,16 @@ class SearXNGProvider:
         if resp.status_code != 200:
             raise SearchUnavailable(f"searxng returned http {resp.status_code}")
         return resp.json()
+
+    def _get_client(self) -> httpx.AsyncClient:
+        if self._client is None:
+            self._client = httpx.AsyncClient(timeout=self._timeout_s)
+        return self._client
+
+    async def aclose(self) -> None:
+        if self._owns_client and self._client is not None:
+            await self._client.aclose()
+            self._client = None
 
     # ---------- breaker detection ----------
 

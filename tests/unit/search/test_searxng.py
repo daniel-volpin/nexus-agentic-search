@@ -203,3 +203,33 @@ async def test_qps_limiter_throttles_second_call() -> None:
     await provider.search(SearchRequest(query="x"))  # must wait ~50ms
     elapsed = time.monotonic() - start
     assert elapsed >= 0.04, f"limiter did not throttle: {elapsed:.3f}s"
+
+
+async def test_owned_client_is_reused_across_requests(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    constructed = 0
+    closed = 0
+
+    class _FakeClient:
+        async def get(self, *args, **kwargs) -> httpx.Response:
+            return httpx.Response(200, json={"results": [], "unresponsive_engines": []})
+
+        async def aclose(self) -> None:
+            nonlocal closed
+            closed += 1
+
+    def _factory(*args, **kwargs):
+        nonlocal constructed
+        constructed += 1
+        return _FakeClient()
+
+    monkeypatch.setattr("nexus.search.searxng.httpx.AsyncClient", _factory)
+    provider = SearXNGProvider("http://searxng:8080", engines=("google",))
+
+    await provider.search(SearchRequest(query="x"))
+    await provider.search(SearchRequest(query="y"))
+    await provider.aclose()
+
+    assert constructed == 1
+    assert closed == 1
