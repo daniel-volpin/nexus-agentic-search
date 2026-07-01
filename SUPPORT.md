@@ -8,7 +8,7 @@ Use GitHub issues for:
 - documentation gaps
 - feature requests tied to the current project scope
 
-Use GitHub discussions if they are enabled later for:
+Use GitHub discussions for:
 
 - setup questions
 - architecture discussion
