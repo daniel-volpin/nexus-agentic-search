@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Push selected refs to a GitHub backup mirror from a Gitea-hosted repo.
+# Push selected refs to a GitHub backup mirror from a Forgejo-hosted repo.
 # Intended for use in a server-side post-receive hook.
 
 usage() {

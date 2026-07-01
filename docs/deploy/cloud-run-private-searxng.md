@@ -1,49 +1,44 @@
-# Cloud Run + Private SearXNG Runbook
+# Cloud Run + Private SearXNG
 
-This is the Cloud Run deployment variant for this repo.
+This document describes one optional deployment pattern.
+It is intentionally generic and should be treated as an operator checklist, not a turnkey recipe.
 
-## Architecture
+## Pattern
 
-- `nexus-agentic-search` runs on Cloud Run.
-- SearXNG runs on a private VM.
-- Cloud Run egress is forced through Serverless VPC Connector + Cloud NAT.
-- VM firewall only allows inbound from the single NAT public IP.
-- Reverse proxy (Caddy) requires `X-Searx-Key` before forwarding to SearXNG.
+- run `nexus-agentic-search` on Cloud Run
+- keep SearXNG on a private VM or private container host
+- force Cloud Run egress through controlled networking
+- require a shared application-layer credential between the service and SearXNG
 
-## Required env vars (Cloud Run service)
+## Minimal Environment
 
-- `SEARXNG_BASE_URL=https://<your-searxng-host>`
+Service env:
+
+- `SEARXNG_BASE_URL=https://your-searxng-host`
 - `SEARXNG_ENGINES=google,duckduckgo`
-- `SEARXNG_API_KEY=<shared-key>`
-- `VERTEX_PROJECT=<gcp-project-id>`
+- `SEARXNG_API_KEY=replace-me`
+- `VERTEX_PROJECT=your-project-id`
 - `VERTEX_LOCATION=global`
+- `NEXUS_HTTP_TOKEN=replace-me`
+- `NEXUS_MCP_TOKEN=replace-me`
 
-## GCP networking controls
+## Network Controls
 
-1. Create Serverless VPC Connector in the Cloud Run region.
-2. Create Cloud Router + Cloud NAT with a reserved static external IP.
-3. Configure Cloud Run with:
-   - `--vpc-connector=<connector>`
-   - `--vpc-egress=all-traffic`
-4. On VM firewall, allow only:
-   - source range: `<nat_static_ip>/32`
-   - destination port: `443`
+1. Route Cloud Run egress through a controlled VPC path.
+2. Expose SearXNG only behind TLS.
+3. Restrict inbound access to the SearXNG reverse proxy so only the expected egress source can reach it.
+4. Do not expose a direct unauthenticated SearXNG port publicly.
 
-## SearXNG controls
+## SearXNG Controls
 
-- Restrict engines to `google` and `duckduckgo` in `settings.yml`.
-- Terminate TLS at Caddy.
-- Require `X-Searx-Key` at Caddy for `/search`.
-- Keep SearXNG bound to localhost/private interface behind proxy.
+- limit enabled engines to the subset you intend to operate
+- terminate TLS before SearXNG
+- require `X-Searx-Key` or an equivalent shared secret at the reverse proxy
+- keep SearXNG bound to a private interface where possible
 
-## Validation checks
+## Validation
 
-1. Cloud Run:
-   - `GET /v1/health` returns `200`
-   - authenticated `POST /v1/search` returns `200`
-2. VM:
-   - `curl` without `X-Searx-Key` returns `401`
-   - `curl` with `X-Searx-Key` returns SearXNG JSON
-3. Firewall:
-   - no public `8088` (or other cleartext fallback) open
-   - only `443` allowed from NAT IP
+1. `GET /v1/health` returns `200`.
+2. Authenticated `POST /v1/search` succeeds.
+3. Requests to SearXNG without the expected shared key are rejected.
+4. No unintended public listener exposes the raw SearXNG instance.

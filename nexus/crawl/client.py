@@ -48,7 +48,7 @@ _CACHE_NAMESPACE = "crawl.document"
 _ALLOWED_CONTENT_TYPES = {"text/html", "text/markdown", "application/xhtml+xml", "text/plain"}
 _MAX_REDIRECTS = 5
 _EMPTY_HASH = hashlib.sha256(b"").hexdigest()
-_DEFAULT_UA = "NexusAgenticSearch/0.1 (+https://github.com/daniel-volpin/nexus-agentic-search)"
+_DEFAULT_UA = "NexusAgenticSearch/0.1"
 
 
 class CrawlClient:
