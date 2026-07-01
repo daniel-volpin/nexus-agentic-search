@@ -5,7 +5,25 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "nexus-agentic-search"
 version = "0.1.0"
+description = "Self-hosted backend for agentic web search with HTTP and MCP interfaces."
+readme = "README.md"
+license = { file = "LICENSE" }
 requires-python = ">=3.11"
+authors = [
+  { name = "Daniel Volpin" },
+]
+keywords = ["agentic-search", "llm", "mcp", "search", "fastapi"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Topic :: Internet :: WWW/HTTP :: Indexing/Search",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+]
 dependencies = [
   "diskcache==5.6.3",
   "fastapi==0.136.1",
@@ -22,6 +40,12 @@ dependencies = [
   "structlog>=24.4,<26",
   "uvicorn[standard]>=0.48.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/daniel-volpin/nexus-agentic-search"
+Repository = "https://github.com/daniel-volpin/nexus-agentic-search"
+Issues = "https://github.com/daniel-volpin/nexus-agentic-search/issues"
+Changelog = "https://github.com/daniel-volpin/nexus-agentic-search/blob/main/CHANGELOG.md"
 
 [dependency-groups]
 dev = [
@@ -49,6 +73,7 @@ filterwarnings = [
   "ignore::DeprecationWarning:websockets.*",
   "ignore::DeprecationWarning:uvicorn.protocols.websockets.*",
   "ignore::DeprecationWarning:opentelemetry.*",
+  "ignore:Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead\\.:starlette.exceptions.StarletteDeprecationWarning",
 ]
 markers = [
   "slow: marks tests as slow (deselect with -m 'not slow')",

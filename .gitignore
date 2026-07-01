@@ -25,6 +25,9 @@ htmlcov/
 coverage.xml
 
 # Secrets — NEVER commit
+.env
+.env.*
+!.env.example
 secrets/*.env
 secrets/*.key
 secrets/*.json
